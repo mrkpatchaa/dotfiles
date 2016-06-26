@@ -1,0 +1,19 @@
+# mappings for making up and down arrow searching through history
+"\e[A": history-search-backward
+"\e[B": history-search-forward
+"\e[C": forward-char
+"\e[D": backward-char
+
+set show-all-if-ambiguous on
+set completion-ignore-case on
+
+#Use tab to cycle through all the possible completions.
+#"\t": menu-complete
+
+# Tab complete for sudo
+complete -cf sudo
+
+# tab completion for ssh hosts
+if [ -f ~/.ssh/known_hosts ]; then
+    complete -W "$(echo `cat ~/.ssh/known_hosts | cut -f 1 -d ' ' | sed -e s/,.*//g | uniq | grep -v "\["`;)" ssh
+fi
