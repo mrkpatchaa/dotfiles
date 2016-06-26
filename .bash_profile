@@ -25,17 +25,23 @@
 
 #   Change Prompt
 #   ------------------------------------------------------------
-    export PS1="________________________________________________________________________________\n| \w @ \h (\u) \n| => "
-    export PS2="| => "
+    # export PS1="________________________________________________________________________________\n| \w @ \h (\u) \n| => "
+    # export PS2="| => "
+
+    # export PS1="[\[\033[36m\]\u\[\033[37m\]@\[\033[33;1m\]\w\[\033[m\]\[\033[32m\]\$(parse_git_branch)\[\033[m\]\]$ "
+
+    # parse_git_branch() {
+    #     git branch 2> /dev/null | sed -e '/^[^*]/d' -e 's/* \(.*\)/ (\1)/'
+    # }
 
 #   Set Paths
 #   ------------------------------------------------------------
     export PATH="$PATH:/usr/local/bin/"
     export PATH="/usr/local/git/bin:/sw/bin/:/usr/local/bin:/usr/local/:/usr/local/sbin:/usr/local/mysql/bin:$PATH"
 
-#   Set Default Editor (change 'Nano' to the editor of your choice)
+#   Set Default Editor (change 'vim' to the editor of your choice)
 #   ------------------------------------------------------------
-    export EDITOR=/usr/bin/nano
+    export EDITOR=/usr/bin/vim
 
 #   Set default blocksize for ls, df, du
 #   from this: http://hints.macworld.com/comment.php?mode=view&cid=24491
@@ -48,6 +54,17 @@
 #   ------------------------------------------------------------
 #   export CLICOLOR=1
 #   export LSCOLORS=ExFxBxDxCxegedabagacad
+
+# HISTORY CFG
+export HISTCONTROL=ignoredups:erasedups:ignoreboth  # no duplicate entries
+                                                    # don't put duplicate lines or lines starting with space in the history.
+                                                    # See bash(1) for more options
+export HISTSIZE=10000000                   # big big history
+export HISTFILESIZE=10000000               # big big history
+shopt -s histappend                      # append to history, don't overwrite it
+
+# Save and reload the history after each command finishes
+export PROMPT_COMMAND="history -a; history -c; history -r; $PROMPT_COMMAND"
 
 
 #   -----------------------------
@@ -100,13 +117,16 @@ alias lr='ls -R | grep ":$" | sed -e '\''s/:$//'\'' -e '\''s/[^-][^\/]*\//--/g'\
 #   ------------------------------------------------------------
     showa () { /usr/bin/grep --color=always -i -a1 $@ ~/Library/init/bash/aliases.bash | grep -v '^\s*$' | less -FSRXc ; }
 
-# history management
-export HISTCONTROL=ignoredups
-export HISTSIZE=1000
-export HISTFILESIZE=1000
-
 # weather from my current location
 alias weather="curl -s 'http://rss.accuweather.com/rss/liveweather_rss.asp?metric=1&locCode=en|us|brooklyn-ny|11215' | sed -n '/Currently:/ s/.*: \(.*\): \([0-9]*\)\([CF]\).*/\2°\3, \1/p'"
+
+# Tab complete for sudo
+complete -cf sudo
+
+# tab completion for ssh hosts
+if [ -f ~/.ssh/known_hosts ]; then
+    complete -W "$(echo `cat ~/.ssh/known_hosts | cut -f 1 -d ' ' | sed -e s/,.*//g | uniq | grep -v "\["`;)" ssh scp sftp
+fi
 
 #   -------------------------------
 #   3.  FILE AND FOLDER MANAGEMENT
