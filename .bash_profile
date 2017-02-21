@@ -301,8 +301,8 @@ alias mountReadWrite='/sbin/mount -uw /'    # mountReadWrite:   For use when boo
 #   finderShowHidden:   Show hidden files in Finder
 #   finderHideHidden:   Hide hidden files in Finder
 #   -------------------------------------------------------------------
-    alias finderShowHidden='defaults write com.apple.finder ShowAllFiles TRUE; killall Finder'
-    alias finderHideHidden='defaults write com.apple.finder ShowAllFiles FALSE; killall Finder'
+    alias finderShowHidden='defaults write com.apple.Finder AppleShowAllFiles YES; killall Finder'
+    alias finderHideHidden='defaults write com.apple.Finder AppleShowAllFiles NO; killall Finder'
 
 #   cleanupLS:  Clean up LaunchServices to remove duplicates in the "Open With" menu
 #   -----------------------------------------------------------------------------------
@@ -411,3 +411,10 @@ function randpasswd() {
     done
     echo
 }
+
+# DOCKER
+docker-ip() {
+    docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$@"
+}
+# http://blog.yohanliyanage.com/2015/05/docker-clean-up-after-yourself/
+alias docker-cleanup='docker rm $(docker ps -q -f status=exited);docker rmi $(docker images -q -f dangling=true)'
