@@ -37,7 +37,7 @@
 #   Set Paths
 #   ------------------------------------------------------------
     export PATH="$PATH:/usr/local/bin/"
-    export PATH="/usr/local/git/bin:/sw/bin/:/usr/local/bin:/usr/local/:/usr/local/sbin:/usr/local/mysql/bin:$PATH"
+    export PATH="/usr/local/git/bin:/sw/bin/:/usr/local/bin:/usr/local/:/usr/local/sbin:/usr/local/mysql/bin:/opt/local/bin:$PATH"
 
 #   Set Default Editor (change 'vim' to the editor of your choice)
 #   ------------------------------------------------------------
@@ -56,12 +56,16 @@
 #   export LSCOLORS=ExFxBxDxCxegedabagacad
 
 # HISTORY CFG
-export HISTCONTROL=ignoredups:erasedups:ignoreboth  # no duplicate entries
-                                                    # don't put duplicate lines or lines starting with space in the history.
-                                                    # See bash(1) for more options
+# don't put duplicate lines in the history. See bash(1) for more options
+# don't overwrite GNU Midnight Commander's setting of `ignorespace'.
+#export HISTCONTROL=$HISTCONTROL${HISTCONTROL+,}ignoredups
+# ... or force ignoredups and ignorespace
+# export HISTCONTROL=ignoreboth
+export HISTCONTROL=ignoreboth:erasedups
+
 export HISTSIZE=10000000                   # big big history
 export HISTFILESIZE=10000000               # big big history
-shopt -s histappend                      # append to history, don't overwrite it
+export HISTTIMEFORMAT='%F %T '              # output format
 
 # Save and reload the history after each command finishes
 export PROMPT_COMMAND="history -a; history -c; history -r; $PROMPT_COMMAND"
@@ -90,12 +94,12 @@ alias edit='subl'                           # edit:         Opens any file in su
 alias f='open -a Finder ./'                 # f:            Opens current directory in MacOS Finder
 alias ~="cd ~"                              # ~:            Go Home
 alias c='clear'                             # c:            Clear terminal display
-alias which='type -all'                     # which:        Find executables
+alias which='type -a'                       # which:        Find executables
 alias path='echo -e ${PATH//:/\\n}'         # path:         Echo all executable Paths
 alias show_options='shopt'                  # Show_options: display bash options settings
 alias fix_stty='stty sane'                  # fix_stty:     Restore terminal settings when screwed up
 alias dodo="pmset sleepnow"                 # sets your computer to sleep immediatly
-alias reload="source ~/.bash_profile"       # reloads the prompt, usefull to take new modifications into account
+alias reload=". ~/.zshrc"       # reloads the prompt, usefull to take new modifications into account
 alias cic='set completion-ignore-case On'   # cic:          Make tab-completion case-insensitive
 mcd () { mkdir -p "$1" && cd "$1"; }        # mcd:          Makes new Dir and jumps inside
 trash () { command mv "$@" ~/.Trash ; }     # trash:        Moves a file to the MacOS trash
@@ -119,14 +123,6 @@ alias lr='ls -R | grep ":$" | sed -e '\''s/:$//'\'' -e '\''s/[^-][^\/]*\//--/g'\
 
 # weather from my current location
 alias weather="curl -s 'http://rss.accuweather.com/rss/liveweather_rss.asp?metric=1&locCode=en|us|brooklyn-ny|11215' | sed -n '/Currently:/ s/.*: \(.*\): \([0-9]*\)\([CF]\).*/\2°\3, \1/p'"
-
-# Tab complete for sudo
-complete -cf sudo
-
-# tab completion for ssh hosts
-if [ -f ~/.ssh/known_hosts ]; then
-    complete -W "$(echo `cat ~/.ssh/known_hosts | cut -f 1 -d ' ' | sed -e s/,.*//g | uniq | grep -v "\["`;)" ssh scp sftp
-fi
 
 #   -------------------------------
 #   3.  FILE AND FOLDER MANAGEMENT
@@ -184,11 +180,11 @@ function gzipsize(){
     echo $((`gzip -c $1 | wc -c`/1024))"KB"
 }
 # Generates a tree view from the current directory
-function tree(){
-    pwd
-    ls -R | grep ":$" |   \
-    sed -e 's/:$//' -e 's/[^-][^\/]*\//--/g' -e 's/^/   /' -e 's/-/|/'
-}
+#function tree(){
+#    pwd
+#    ls -R | grep ":$" |   \
+#    sed -e 's/:$//' -e 's/[^-][^\/]*\//--/g' -e 's/^/   /' -e 's/-/|/'
+#}
 
 #   ---------------------------
 #   4.  SEARCHING
@@ -418,3 +414,15 @@ docker-ip() {
 }
 # http://blog.yohanliyanage.com/2015/05/docker-clean-up-after-yourself/
 alias docker-cleanup='docker rm $(docker ps -q -f status=exited);docker rmi $(docker images -q -f dangling=true)'
+
+# PHP Artisan
+alias artisan='php artisan'
+
+# Composer executables
+export PATH="$PATH:$HOME/.composer/vendor/bin"
+
+# Bind keys
+bindkey "[D" backward-word
+bindkey "[C" forward-word
+bindkey "^[a" beginning-of-line
+bindkey "^[e" end-of-line
