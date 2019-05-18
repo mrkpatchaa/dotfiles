@@ -48,6 +48,10 @@ export EDITOR=/usr/bin/vim
 #   ------------------------------------------------------------
 export BLOCKSIZE=1k
 
+ZSH_DISABLE_COMPFIX=true
+ENABLE_CORRECTION="true"
+COMPLETION_WAITING_DOTS="true"
+
 #   Add color to terminal
 #   (this is all commented out as I use Mac Terminal Profiles)
 #   from http://osxdaily.com/2012/02/21/add-color-to-the-terminal-in-mac-os-x/
@@ -120,6 +124,7 @@ mcd () { mkdir -p "$1" && cd "$1"; }        # mcd:          Makes new Dir and ju
 trash () { command mv "$@" ~/.Trash ; }     # trash:        Moves a file to the MacOS trash
 ql () { qlmanage -p "$*" >& /dev/null; }    # ql:           Opens any file in MacOS Quicklook Preview
 alias DT='tee ~/Desktop/terminalOut.txt'    # DT:           Pipe content to file on MacOS Desktop
+alias suroot='sudo -E -s'
 
 #   lr:  Full Recursive Directory Listing
 #   ------------------------------------------
@@ -472,3 +477,6 @@ bindkey "[D" backward-word
 bindkey "[C" forward-word
 bindkey "^[a" beginning-of-line
 bindkey "^[e" end-of-line
+
+# Clean node_modules
+alias cleannode="find . -name 'node_modules' -type d -prune -exec rm -rf '{}' +"
