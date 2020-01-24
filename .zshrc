@@ -319,6 +319,8 @@ alias cleanupDS="find . -type f -name '*.DS_Store' -ls -delete"
 #   -------------------------------------------------------------------
 alias finderShowHidden='defaults write com.apple.Finder AppleShowAllFiles YES; killall Finder'
 alias finderHideHidden='defaults write com.apple.Finder AppleShowAllFiles NO; killall Finder'
+alias finderHideDesktop='defaults write com.apple.Finder CreateDesktop false; killall Finder'
+alias finderShowDesktop='defaults write com.apple.Finder CreateDesktop true; killall Finder'
 
 #   cleanupLS:  Clean up LaunchServices to remove duplicates in the "Open With" menu
 #   -----------------------------------------------------------------------------------
@@ -478,5 +480,5 @@ bindkey "[C" forward-word
 bindkey "^[a" beginning-of-line
 bindkey "^[e" end-of-line
 
-# Clean node_modules
+# Clean node_modules (You can also use npx npkill)
 alias cleannode="find . -name 'node_modules' -type d -prune -exec rm -rf '{}' +"

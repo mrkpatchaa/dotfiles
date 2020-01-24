@@ -47,3 +47,8 @@ Temporary Items
 app_custom_yk.zip
 
 jsconfig.json
+
+# NPM / Yarn
+yarn.lock
+package-lock.json
+
