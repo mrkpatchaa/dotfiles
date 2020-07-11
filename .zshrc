@@ -389,6 +389,11 @@ function gitexport(){
     git archive master | tar -x -C "$1"
 }
 
+function gitcleanbranches(){
+    git branch --merged | egrep -v "(^\*|master|dev|develop)" | xargs git branch -d
+    git remote prune origin
+}
+
 function sshKeyGen(){
 
     echo "What's the name of the Key (no spaced please) ? ";
@@ -461,6 +466,9 @@ docker-ip() {
 # http://blog.yohanliyanage.com/2015/05/docker-clean-up-after-yourself/
 alias docker-cleanup='docker rm $(docker ps -q -f status=exited);docker rmi $(docker images -q -f dangling=true)'
 
+# Alias to devs folder
+alias devs='cd ~/DATA/Devs'
+
 # PHP Artisan
 alias artisan='php artisan'
 
@@ -482,3 +490,26 @@ bindkey "^[e" end-of-line
 
 # Clean node_modules (You can also use npx npkill)
 alias cleannode="find . -name 'node_modules' -type d -prune -exec rm -rf '{}' +"
+
+
+# place this after nvm initialization!
+autoload -U add-zsh-hook
+load-nvmrc() {
+  local node_version="$(nvm version)"
+  local nvmrc_path="$(nvm_find_nvmrc)"
+
+  if [ -n "$nvmrc_path" ]; then
+    local nvmrc_node_version=$(nvm version "$(cat "${nvmrc_path}")")
+
+    if [ "$nvmrc_node_version" = "N/A" ]; then
+      nvm install
+    elif [ "$nvmrc_node_version" != "$node_version" ]; then
+      nvm use
+    fi
+  elif [ "$node_version" != "$(nvm version default)" ]; then
+    echo "Reverting to nvm default version"
+    nvm use default
+  fi
+}
+add-zsh-hook chpwd load-nvmrc
+load-nvmrc
