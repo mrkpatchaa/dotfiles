@@ -51,4 +51,4 @@ jsconfig.json
 # NPM / Yarn
 yarn.lock
 package-lock.json
-
+.nvmrc

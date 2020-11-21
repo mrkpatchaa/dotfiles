@@ -390,7 +390,7 @@ function gitexport(){
 }
 
 function gitcleanbranches(){
-    git branch --merged | egrep -v "(^\*|master|dev|develop)" | xargs git branch -d
+    git branch --merged | egrep -v "(^\*|master|dev|develop|refonte-sfra)" | xargs git branch -d
     git remote prune origin
 }
 
@@ -489,27 +489,55 @@ bindkey "^[a" beginning-of-line
 bindkey "^[e" end-of-line
 
 # Clean node_modules (You can also use npx npkill)
-alias cleannode="find . -name 'node_modules' -type d -prune -exec rm -rf '{}' +"
+alias cleannode="find . -name 'node_modules' -type d -prune -print -exec rm -rf '{}' +"
 
 
 # place this after nvm initialization!
-autoload -U add-zsh-hook
-load-nvmrc() {
-  local node_version="$(nvm version)"
-  local nvmrc_path="$(nvm_find_nvmrc)"
+# autoload -U add-zsh-hook
+# load-nvmrc() {
+#   local node_version="$(nvm version)"
+#   local nvmrc_path="$(nvm_find_nvmrc)"
 
-  if [ -n "$nvmrc_path" ]; then
-    local nvmrc_node_version=$(nvm version "$(cat "${nvmrc_path}")")
+#   if [ -n "$nvmrc_path" ]; then
+#     local nvmrc_node_version=$(nvm version "$(cat "${nvmrc_path}")")
 
-    if [ "$nvmrc_node_version" = "N/A" ]; then
-      nvm install
-    elif [ "$nvmrc_node_version" != "$node_version" ]; then
-      nvm use
-    fi
-  elif [ "$node_version" != "$(nvm version default)" ]; then
-    echo "Reverting to nvm default version"
-    nvm use default
-  fi
+#     if [ "$nvmrc_node_version" = "N/A" ]; then
+#       nvm install
+#     elif [ "$nvmrc_node_version" != "$node_version" ]; then
+#       nvm use
+#     fi
+#   elif [ "$node_version" != "$(nvm version default)" ]; then
+#     echo "Reverting to nvm default version"
+#     nvm use default
+#   fi
+# }
+# add-zsh-hook chpwd load-nvmrc
+# load-nvmrc
+
+# FNM
+find-up() {
+	path=$(pwd)
+	while [[ "$path" != "" && ! -e "$path/$1" ]]; do
+		path=${path%/*}
+	done
+	echo "$path"
 }
-add-zsh-hook chpwd load-nvmrc
-load-nvmrc
+
+FNM_USING_LOCAL_VERSION=0
+
+autoload -U add-zsh-hook
+_fnm_autoload_hook() {
+	nvmrc_path=$(find-up .nvmrc | tr -d '[:space:]')
+
+	if [ -n "$nvmrc_path" ]; then
+		FNM_USING_LOCAL_VERSION=1
+		nvm_version=$(cat $nvmrc_path/.nvmrc)
+		fnm use $nvm_version --install-if-missing
+	elif [ $FNM_USING_LOCAL_VERSION -eq 1 ]; then
+		FNM_USING_LOCAL_VERSION=0
+		fnm use default
+	fi
+}
+
+add-zsh-hook chpwd _fnm_autoload_hook &&
+	_fnm_autoload_hook
