@@ -19,7 +19,7 @@
 /.rbenv-version
 
 # Bundler binstubs
-/bin/
+#/bin/
 
 # Icon must end with two \r
 Icon
@@ -52,3 +52,7 @@ jsconfig.json
 yarn.lock
 package-lock.json
 .nvmrc
+
+# VSCode
+.vscode/
+system-objecttype-extension.d.ts
