@@ -482,6 +482,13 @@ function dedupHistory() {
     mv $tmpFile ~/.zsh_history
 }
 
+rename() {
+    for i in $1*
+    do
+        mv "$i" "${i/$1/$2}"
+    done
+}
+
 # Bind keys
 bindkey "[D" backward-word
 bindkey "[C" forward-word
@@ -489,7 +496,7 @@ bindkey "^[a" beginning-of-line
 bindkey "^[e" end-of-line
 
 # Clean node_modules (You can also use npx npkill)
-alias cleannode="find . -name 'node_modules' -type d -prune -print -exec rm -rf '{}' +"
+alias cleannode="find . -name 'node_modules' -type d -prune -print -exec rm -rf '{}' + && find . -name 'package-lock.json' -type f -prune -print -exec rm -rf '{}' +"
 
 # place this after nvm initialization!
 autoload -U add-zsh-hook
