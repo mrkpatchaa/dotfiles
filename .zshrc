@@ -499,7 +499,7 @@ bindkey "^[e" end-of-line
 alias cleannode="find . -name 'node_modules' -type d -prune -print -exec rm -rf '{}' + && find . -name 'package-lock.json' -type f -prune -print -exec rm -rf '{}' +"
 
 
-#   cleanupDS:  Recursively delete .DS_Store files
+#   cleanupXcode
 #   -------------------------------------------------------------------
 alias cleanupXcode="rm -rf ~/Library/Developer/Xcode/DerivedData/* && rm -rf ~/Library/Caches/com.apple.dt.Xcode"
 
