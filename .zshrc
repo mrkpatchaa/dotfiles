@@ -503,6 +503,10 @@ alias cleannode="find . -name 'node_modules' -type d -prune -print -exec rm -rf 
 #   -------------------------------------------------------------------
 alias cleanupXcode="rm -rf ~/Library/Developer/Xcode/DerivedData/* && rm -rf ~/Library/Caches/com.apple.dt.Xcode"
 
+#   cleanupAll
+#   -------------------------------------------------------------------
+alias cleanupAll="cleanupXcode && yarn cache clean --all"
+
 # place this after nvm initialization!
 autoload -U add-zsh-hook
 load-nvmrc() {
