@@ -390,9 +390,13 @@ function gitexport(){
 }
 
 function gitcleanbranches(){
-    git branch --merged | egrep -v "(^\*|master|dev|develop|refonte-sfra|main)" | xargs git branch -d
+    git branch --merged | egrep -v "(^\*|master|dev|develop|main)" | xargs git branch -D
     git remote prune origin
 }
+
+alias git-list-untracked='git fetch --prune && git branch -r | awk "{print \$1}" | egrep -v -f /dev/fd/0 <(git branch -vv | grep origin) | awk "{print \$1}"'
+alias git-remove-untracked='git fetch --prune && git branch -r | awk "{print \$1}" | egrep -v -f /dev/fd/0 <(git branch -vv | grep origin) | awk "{print \$1}" | xargs git branch -d'
+alias git-remove-untracked-f='git fetch --prune && git branch -r | awk "{print \$1}" | egrep -v -f /dev/fd/0 <(git branch -vv | grep origin) | awk "{print \$1}" | xargs git branch -D'
 
 function sshKeyGen(){
 
