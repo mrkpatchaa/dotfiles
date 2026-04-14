@@ -1,0 +1,1 @@
+/Users/user/DATA/dotfiles/.agents/skills/gstack/health/SKILL.md

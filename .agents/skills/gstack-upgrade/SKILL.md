@@ -1,0 +1,1 @@
+/Users/user/DATA/dotfiles/.agents/skills/gstack/gstack-upgrade/SKILL.md
