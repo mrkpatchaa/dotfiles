@@ -1,1 +1,0 @@
-/Users/rkpatchaa/DATA/dotfiles/.agents/skills/gstack/devex-review/SKILL.md

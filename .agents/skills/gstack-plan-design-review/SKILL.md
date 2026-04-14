@@ -1,1 +1,0 @@
-/Users/rkpatchaa/DATA/dotfiles/.agents/skills/gstack/plan-design-review/SKILL.md

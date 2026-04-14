@@ -1,1 +1,0 @@
-/Users/rkpatchaa/DATA/dotfiles/.agents/skills/gstack/setup-browser-cookies/SKILL.md
