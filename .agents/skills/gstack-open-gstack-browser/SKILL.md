@@ -1,1 +1,0 @@
-/Users/user/DATA/dotfiles/.agents/skills/gstack/open-gstack-browser/SKILL.md

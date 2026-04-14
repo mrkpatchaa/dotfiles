@@ -1,1 +1,0 @@
-/Users/user/DATA/dotfiles/.agents/skills/gstack/land-and-deploy/SKILL.md
