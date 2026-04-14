@@ -1,0 +1,1 @@
+/Users/rkpatchaa/DATA/dotfiles/.agents/skills/gstack/plan-ceo-review/SKILL.md

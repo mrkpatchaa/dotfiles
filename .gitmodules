@@ -1,0 +1,6 @@
+[submodule ".agents/skills/agent-skills"]
+	path = .agents/skills/agent-skills
+	url = git@github.com:addyosmani/agent-skills.git
+[submodule ".agents/skills/gstack"]
+	path = .agents/skills/gstack
+	url = git@github.com:garrytan/gstack.git
