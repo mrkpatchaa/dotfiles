@@ -54,5 +54,4 @@ package-lock.json
 .nvmrc
 
 # VSCode
-.vscode/
 system-objecttype-extension.d.ts
