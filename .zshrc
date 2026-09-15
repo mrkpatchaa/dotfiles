@@ -51,9 +51,8 @@ alias mv='mv -iv'
 alias rm='rm -i'
 alias lsh='ls -ld .??*'                     # only show dot files
 alias mkdir='mkdir -pv'
-alias ll='ls -FGlAhp'
+# alias ll='ls -FGlAhp'
 alias less='less -FSRXc'
-cd() { builtin cd "$@"; ll; }               # Always list directory contents upon 'cd'
 
 # Navigation
 alias ..='cd ../'
@@ -192,6 +191,7 @@ alias ls='eza --icons --git'          # Standard list with icons and git status
 alias ll='eza -lh --icons --git'      # Long format, human-readable sizes
 alias la='eza -lah --icons --git'     # Long format including hidden files
 alias tree='eza --tree --icons'       # Directory tree view
+cd() { builtin cd "$@"; ll; }               # Always list directory contents upon 'cd'
 
 # bat (replaces cat)
 alias cat='bat'
