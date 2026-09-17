@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# codex-review — independent review with fallbacks: Codex → OpenCode Go reviewer → exit 75 (caller uses the Claude `reviewer` agent).
+# Usage: codex-review spec [SPEC-file]           adversarial review of a spec document (default SPEC.md)
+#        codex-review diff [base] [focus text]    review of the working tree vs a base branch (default: repo default branch)
+# Env:   REVIEW_FALLBACK_MODELS="opencode-go/glm-5.3 opencode-go/kimi-k3 opencode-go/deepseek-v4.1-flash"
+#        REVIEW_NO_OPENCODE=1 → skip the OpenCode fallback     AI_LIMIT_COOLDOWN=1800
+# Exit:  0 = review printed (first line: REVIEWER: <who>)   75 = no reviewer reachable   64 = usage   66 = file missing
+set -u
+. "$(cd "$(dirname "$0")" && pwd)/_common.sh"
+default_base() { git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' \
+  || { git show-ref --verify --quiet refs/heads/main && echo main; } || echo master; }
+MODE="${1:-diff}"; [ $# -gt 0 ] && shift
+case "$MODE" in
+  spec)
+    FILE="${1:-SPEC.md}"
+    [ -f "$FILE" ] || { echo "codex-review: $FILE not found" >&2; exit 66; }
+    PROMPT="Review the file $FILE as a senior engineer who wants this plan to fail. Read it fully, and read the code it references where that matters. Find: missing edge cases, ambiguous requirements, anything under 'Done means' that cannot be verified, security or data-loss risks, and any simpler design that meets the same goal. The first line of your answer must be exactly 'VERDICT: READY' or 'VERDICT: REVISE'. Then the findings, most serious first, each naming the spec section or file it concerns and a concrete fix." ;;
+  diff)
+    BASE="${1:-}"; [ $# -gt 0 ] && shift; FOCUS="$*"
+    [ -n "$BASE" ] || BASE="$(default_base)"
+    PROMPT="Review the changes in this working tree against $BASE (run: git diff $BASE). If a SPEC-*.md or SPEC.md describes this work, check the diff against it; also check the conventions in AGENTS.md. Look for bugs, missing error handling, security issues, spec drift, and tests that pass without testing behaviour.${FOCUS:+ Focus especially on: $FOCUS.} The first line of your answer must be exactly 'VERDICT: SHIP', 'VERDICT: NEEDS WORK' or 'VERDICT: BLOCK'. Then the findings with file:line, most serious first, each with a concrete fix." ;;
+  -h|--help|*) sed -n '2,7p' "$0" >&2; exit 64 ;;
+esac
+codex_model() { grep -E '^[[:space:]]*model[[:space:]]*=' .codex/config.toml "$HOME/.codex/config.toml" 2>/dev/null | head -1 | sed -E 's/.*=[[:space:]]*"?([^"[:space:]]*)"?.*/\1/'; }
+
+# 1) Codex (ChatGPT Plus). Model + effort come from .codex/config.toml (project) or ~/.codex/config.toml.
+if ! command -v codex >/dev/null 2>&1; then
+  echo "codex-review: codex is not installed or not on PATH — falling back" >&2
+elif recently_limited codex; then
+  echo "codex-review: Codex hit its limit $(minutes_ago codex) min ago — falling back" >&2
+else
+  out="$(mktemp)"; err="$(mktemp)"
+  if codex exec --sandbox read-only "$PROMPT" >"$out" 2>"$err" </dev/null; then
+    m="$(codex_model)"; echo "REVIEWER: codex (${m:-default model})"; cat "$out"; rm -f "$out" "$err"; exit 0
+  fi
+  if is_limited_msg "$err" || is_limited_msg "$out"; then mark_limited codex; echo "codex-review: Codex hit its limit — falling back" >&2
+  else echo "codex-review: codex exec failed (not a limit). stderr:" >&2; head -c 1500 "$err" >&2; echo >&2; fi
+  rm -f "$out" "$err"
+fi
+
+# 2) OpenCode Go reviewer (different vendor, read-only: edits and shell denied except git read commands)
+if [ "${REVIEW_NO_OPENCODE:-0}" != "1" ] && command -v opencode >/dev/null 2>&1; then
+  for m in ${REVIEW_FALLBACK_MODELS:-opencode-go/glm-5.3 opencode-go/kimi-k3 opencode-go/deepseek-v4.1-flash}; do
+    if recently_limited "$m"; then echo "codex-review: skipping $m (limited $(minutes_ago "$m") min ago)" >&2; continue; fi
+    out="$(mktemp)"; err="$(mktemp)"
+    if OPENCODE_PERMISSION='{"edit":"deny","bash":{"*":"deny","git diff*":"allow","git status*":"allow","git log*":"allow","git show*":"allow"}}' \
+       opencode run --model "$m" --variant high --auto "$PROMPT" >"$out" 2>"$err" </dev/null; then
+      echo "REVIEWER: $m (fallback — Codex unavailable)"; cat "$out"; rm -f "$out" "$err"; exit 0
+    fi
+    if is_limited_msg "$err" || is_limited_msg "$out"; then mark_limited "$m"; echo "codex-review: $m hit its limit — next" >&2
+    else echo "codex-review: $m failed (not a limit). stderr:" >&2; head -c 1500 "$err" >&2; echo >&2; fi
+    rm -f "$out" "$err"
+  done
+fi
+
+echo "REVIEWER: none — Codex and OpenCode are both unavailable. Delegate this review to the Claude 'reviewer' agent and flag it as same-vendor in the report." >&2
+exit 75

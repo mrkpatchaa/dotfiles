@@ -1,0 +1,11 @@
+{
+  "name": "mrk",
+  "owner": { "name": "Médédé Raymond" },
+  "plugins": [
+    {
+      "name": "ai",
+      "source": "./ai",
+      "description": "The loop: spec → independent spec review → Sonnet builds (DeepSeek does the rote parts) → independent QA. Plus /ai:ship, the grunt/implementer/reviewer agents, and the fallback scripts."
+    }
+  ]
+}

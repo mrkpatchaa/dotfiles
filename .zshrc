@@ -355,3 +355,6 @@ function compress_pdf() {
 # }
 # add-zsh-hook chpwd load-nvmrc
 # load-nvmrc
+
+# --- ai-loop (2026-09-16): launch aliases + helper scripts on PATH ---
+[ -f "$HOME/devs/dotfiles/claude/aliases.zsh" ] && source "$HOME/devs/dotfiles/claude/aliases.zsh"

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# ai-limits — show which lanes recently reported a limit (and are being skipped), or clear the memory.
+# Usage: ai-limits            ai-limits clear
+set -u
+. "$(cd "$(dirname "$0")" && pwd)/_common.sh"
+if [ "${1:-}" = "clear" ]; then rm -f "$STATE_DIR"/*.limited; echo "cleared"; exit 0; fi
+found=0
+for f in "$STATE_DIR"/*.limited; do
+  [ -e "$f" ] || continue; found=1
+  lane="$(basename "$f" .limited)"; age=$(( ( $(date +%s) - $(mtime "$f") ) / 60 ))
+  if [ $(( age * 60 )) -lt "$COOLDOWN" ]; then echo "SKIPPING  $lane  (limit reported $age min ago; re-probes after $(( COOLDOWN / 60 )) min)"
+  else echo "cooled    $lane  (limit reported $age min ago; will be tried again)"; fi
+done
+[ $found -eq 1 ] || echo "no lane has reported a limit"
