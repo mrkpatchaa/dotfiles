@@ -18,7 +18,7 @@ Stage 3 — Build. Delegate to the `implementer` agent with the spec path as its
 
 Stage 4 — QA (independent reviewer). Run in Bash:
   codex-review diff <base-branch> [focus]
-For anything touching auth, payments, schemas or data, pass a focus: `codex-review diff main "auth flows, payment state, data loss"`. Same fallback rule as Stage 2 (exit 75 → `reviewer` agent, flagged). Show me the verdict.
+For anything touching auth, payments, schemas or data, pass a focus: `codex-review diff main "auth flows, payment state, data loss"`. A focus also selects the stronger Codex tier when `CODEX_REVIEW_MODEL_RISKY` is set, so pass one only when the diff warrants it. Same fallback rule as Stage 2 (exit 75 → `reviewer` agent, flagged). Show me the verdict.
 
 Stage 5 — Fix loop, at most two rounds, back through the `implementer` with the findings as its brief, then re-run Stage 4. On a second BLOCK, stop and show me why instead of retrying.
 

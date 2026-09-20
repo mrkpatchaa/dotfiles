@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""jev-triage — a cheap first look at a diff, so the expensive independent review runs only where it pays.
+Usage: git diff HEAD | jev-triage
+Out:   line 1  SKIP | REVIEW | ADVERSARIAL
+       line 2  focus: <text to hand to `codex-review diff "" "<focus>"`>   (empty unless ADVERSARIAL)
+       line 3  one-line JSON with the scores and the reason
+Always exits 0 and fails open to REVIEW: no key, no network, a timeout or a malformed reply all mean a normal review.
+Key:   $TYPESAFE_API_KEY, else the file $TYPESAFE_KEY_FILE (default ~/.config/typesafe/api-key). Never printed or logged.
+Env:   JEV_API_URL (default https://api.typesafe.ai/v1/systemone)   JEV_MODEL (jev-latest)   JEV_TIMEOUT (6 seconds)
+Privacy: the diff leaves this machine. Lockfiles, env files, keys, binaries and generated types are dropped first, and
+anything that looks like a credential is redacted locally (and escalates the verdict by itself, without asking Jev).
+"""
+import json, os, re, sys, urllib.request
+
+LIMIT = 60000          # characters of diff sent (~15k tokens; Jev's state limit is 32k tokens)
+RISK_AT = 0.35         # a risk question at or above this escalates instead of guessing
+SKIP_AT = 0.90         # "trivial" must be at least this...
+SKIP_RISK_MAX = 0.15   # ...with every risk below this, to skip the review
+
+DROP = re.compile(r'(^|/)(\.env[^/]*|[^/]*\.(pem|key|p12|keystore|jks|lock|lockb|snap|png|jpe?g|gif|webp|ico|pdf|zip|mp4|ttf|woff2?)'
+                  r'|pnpm-lock\.yaml|package-lock\.json|database\.types\.ts)$', re.I)
+SECRET = re.compile(r'''(?ix)
+    (?:api[_-]?key|secret|token|passw(?:or)?d|private[_-]?key|service[_-]?role)["'\s]*[:=]\s*["']?[A-Za-z0-9_\-./+=]{16,}
+  | eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}
+  | \bsk-[A-Za-z0-9_-]{20,}
+  | -----BEGIN\ [A-Z ]*PRIVATE\ KEY-----''')
+PATH_HINTS = [  # deterministic where the path already answers the question
+    ('schema', re.compile(r'(^|/)(migrations?/|supabase/.*\.sql$|.*\.sql$|schema\.prisma$)', re.I)),
+    ('auth',   re.compile(r'(^|/)(auth|middleware|policies|rls)[^/]*(/|\.|$)', re.I)),
+    ('money',  re.compile(r'(payment|checkout|billing|subscription|invoice|iap|storekit|revenuecat)', re.I)),
+]
+QUESTIONS = {
+    'auth':    'The diff changes authentication, authorization, row-level security policies, database grants, or session handling.',
+    'money':   'The diff changes payment, subscription, in-app purchase, token-balance, or pricing logic.',
+    'schema':  'The diff adds or changes a database migration, a table, a column, or a stored function.',
+    'tests':   'The diff deletes tests, disables tests, or weakens assertions.',
+    'trivial': 'The diff only changes documentation, comments, formatting, or names, with no change in runtime behaviour.',
+}
+FOCUS = {'auth': 'auth flows, RLS policies and grants', 'money': 'payment and subscription state',
+         'schema': 'migrations and data loss', 'tests': 'removed or weakened tests', 'secret': 'a possible hardcoded credential'}
+
+def out(verdict, focus='', **info):
+    print(verdict); print('focus: ' + focus if focus else ''); print(json.dumps(info, sort_keys=True)); sys.exit(0)
+
+def main():
+    raw = sys.stdin.read()
+    if not raw.strip():
+        out('REVIEW', reason='empty diff')
+    kept, paths, dropped = [], [], 0
+    for sec in re.split(r'(?m)^(?=diff --git )', raw):
+        m = re.match(r'diff --git a/(\S+) b/(\S+)', sec)
+        if m:
+            if DROP.search(m.group(2)):
+                dropped += 1; continue
+            paths.append(m.group(2))
+        kept.append(sec)
+    text = ''.join(kept)
+    secret_hit = any(SECRET.search(l) for l in text.splitlines() if l.startswith('+') and not l.startswith('+++'))
+    text = SECRET.sub('[REDACTED]', text)
+    truncated = len(text) > LIMIT
+    hints = {k: 1.0 for k, rx in PATH_HINTS if any(rx.search(p) for p in paths)}
+
+    key = os.environ.get('TYPESAFE_API_KEY', '').strip()
+    if not key:
+        f = os.environ.get('TYPESAFE_KEY_FILE') or os.path.expanduser('~/.config/typesafe/api-key')
+        try: key = open(f).read().strip()
+        except OSError: key = ''
+    scores, err = {}, None
+    if not text.strip():
+        err = 'nothing left to send after dropping generated and sensitive files'
+    elif not key:
+        err = 'no TypeSafe key'
+    else:
+        body = {'model': os.environ.get('JEV_MODEL', 'jev-latest'), 'state': text[:LIMIT],
+                'questions': {k: {'type': 'noul', 'instructions': v} for k, v in QUESTIONS.items()}}
+        req = urllib.request.Request(os.environ.get('JEV_API_URL', 'https://api.typesafe.ai/v1/systemone'),
+                                     data=json.dumps(body).encode(), method='POST',
+                                     headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
+        try:
+            with urllib.request.urlopen(req, timeout=float(os.environ.get('JEV_TIMEOUT', '6'))) as r:
+                ans = json.load(r).get('answers') or {}
+            scores = {k: round(float(ans[k]['noul']), 3) for k in QUESTIONS}
+        except Exception as e:                      # fail open; never echo the request (it carries the key)
+            err = 'jev call failed: ' + type(e).__name__
+
+    risk = {k: max(scores.get(k, 0.0), hints.get(k, 0.0)) for k in ('auth', 'money', 'schema', 'tests')}
+    if secret_hit: risk['secret'] = 1.0
+    tripped = [k for k, v in risk.items() if v >= RISK_AT]
+    info = dict(scores=scores, path_hints=sorted(hints), secret=secret_hit, files=len(paths), dropped=dropped, truncated=truncated)
+    if tripped:
+        out('ADVERSARIAL', ', '.join(FOCUS[k] for k in tripped), reason='risk: ' + ','.join(tripped), **info)
+    if err:
+        out('REVIEW', reason=err, **info)
+    if scores.get('trivial', 0) >= SKIP_AT and max(risk.values()) < SKIP_RISK_MAX and not truncated and not dropped:
+        out('SKIP', reason='trivial', **info)
+    out('REVIEW', reason='default', **info)
+
+if __name__ == '__main__':
+    try: main()
+    except SystemExit: raise
+    except Exception as e:
+        print('REVIEW'); print(''); print(json.dumps({'reason': 'jev-triage crashed: ' + type(e).__name__})); sys.exit(0)

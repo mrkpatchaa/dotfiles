@@ -2,13 +2,18 @@
 # codex-review — independent review with fallbacks: Codex → OpenCode Go reviewer → exit 75 (caller uses the Claude `reviewer` agent).
 # Usage: codex-review spec [SPEC-file]           adversarial review of a spec document (default SPEC.md)
 #        codex-review diff [base] [focus text]    review of the working tree vs a base branch (default: repo default branch)
-# Env:   REVIEW_FALLBACK_MODELS="opencode-go/glm-5.3 opencode-go/kimi-k3 opencode-go/deepseek-v4.1-flash"
+# Env:   CODEX_REVIEW_MODEL=<id>        Codex model for spec reviews and ordinary diff reviews (unset → Codex's own config.toml)
+#        CODEX_REVIEW_MODEL_RISKY=<id>  Codex model when a focus is given (auth, payments, schema…); unset → CODEX_REVIEW_MODEL
+#        CODEX_REVIEW_EFFORT=low|medium|high|xhigh   (unset → config.toml)
+#        REVIEW_FALLBACK_MODELS="opencode-go/glm-5.3 opencode-go/kimi-k3 opencode-go/deepseek-v4.1-flash"
 #        REVIEW_NO_OPENCODE=1 → skip the OpenCode fallback     AI_LIMIT_COOLDOWN=1800
 # Exit:  0 = review printed (first line: REVIEWER: <who>)   75 = no reviewer reachable   64 = usage   66 = file missing
 set -u
 . "$(cd "$(dirname "$0")" && pwd)/_common.sh"
-default_base() { git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' \
-  || { git show-ref --verify --quiet refs/heads/main && echo main; } || echo master; }
+default_base() {  # origin's default branch, else main, else master (the pipe to sed used to hide a failed symbolic-ref and return "")
+  local b; b="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
+  [ -n "$b" ] || { git show-ref --verify --quiet refs/heads/main && b=main; }
+  echo "${b:-master}"; }
 MODE="${1:-diff}"; [ $# -gt 0 ] && shift
 case "$MODE" in
   spec)
@@ -19,8 +24,12 @@ case "$MODE" in
     BASE="${1:-}"; [ $# -gt 0 ] && shift; FOCUS="$*"
     [ -n "$BASE" ] || BASE="$(default_base)"
     PROMPT="Review the changes in this working tree against $BASE (run: git diff $BASE). If a SPEC-*.md or SPEC.md describes this work, check the diff against it; also check the conventions in AGENTS.md. Look for bugs, missing error handling, security issues, spec drift, and tests that pass without testing behaviour.${FOCUS:+ Focus especially on: $FOCUS.} The first line of your answer must be exactly 'VERDICT: SHIP', 'VERDICT: NEEDS WORK' or 'VERDICT: BLOCK'. Then the findings with file:line, most serious first, each with a concrete fix." ;;
-  -h|--help|*) sed -n '2,7p' "$0" >&2; exit 64 ;;
+  -h|--help|*) sed -n '2,10p' "$0" >&2; exit 64 ;;
 esac
+# Model per review: the mid tier by default, the strong one only where a focus says the diff is risky. Protects the Plus quota.
+CM="${CODEX_REVIEW_MODEL:-}"; [ "$MODE" = diff ] && [ -n "${FOCUS:-}" ] && CM="${CODEX_REVIEW_MODEL_RISKY:-$CM}"
+set --; [ -n "$CM" ] && set -- "$@" -m "$CM"
+[ -n "${CODEX_REVIEW_EFFORT:-}" ] && set -- "$@" -c "model_reasoning_effort=\"$CODEX_REVIEW_EFFORT\""
 codex_model() { grep -E '^[[:space:]]*model[[:space:]]*=' .codex/config.toml "$HOME/.codex/config.toml" 2>/dev/null | head -1 | sed -E 's/.*=[[:space:]]*"?([^"[:space:]]*)"?.*/\1/'; }
 
 # 1) Codex (ChatGPT Plus). Model + effort come from .codex/config.toml (project) or ~/.codex/config.toml.
@@ -30,8 +39,8 @@ elif recently_limited codex; then
   echo "codex-review: Codex hit its limit $(minutes_ago codex) min ago — falling back" >&2
 else
   out="$(mktemp)"; err="$(mktemp)"
-  if codex exec --sandbox read-only "$PROMPT" >"$out" 2>"$err" </dev/null; then
-    m="$(codex_model)"; echo "REVIEWER: codex (${m:-default model})"; cat "$out"; rm -f "$out" "$err"; exit 0
+  if codex exec "$@" --sandbox read-only "$PROMPT" >"$out" 2>"$err" </dev/null; then
+    m="${CM:-$(codex_model)}"; echo "REVIEWER: codex (${m:-default model})"; cat "$out"; rm -f "$out" "$err"; exit 0
   fi
   if is_limited_msg "$err" || is_limited_msg "$out"; then mark_limited codex; echo "codex-review: Codex hit its limit — falling back" >&2
   else echo "codex-review: codex exec failed (not a limit). stderr:" >&2; head -c 1500 "$err" >&2; echo >&2; fi

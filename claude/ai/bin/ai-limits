@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
 # ai-limits — show which lanes recently reported a limit (and are being skipped), or clear the memory.
-# Usage: ai-limits            ai-limits clear
+# Usage: ai-limits            ai-limits clear            ai-limits triage   (jev-triage vs the real review, from the commit hook's log)
 set -u
 . "$(cd "$(dirname "$0")" && pwd)/_common.sh"
 if [ "${1:-}" = "clear" ]; then rm -f "$STATE_DIR"/*.limited; echo "cleared"; exit 0; fi
+if [ "${1:-}" = "triage" ]; then
+  L="$STATE_DIR/jev-triage.log"; [ -s "$L" ] || { echo "no triage log yet ($L)"; exit 0; }
+  echo "jev-triage verdict × review verdict (count):"
+  awk -F'\t' '{c[$4" → "$5]++} END{for(k in c) printf "  %4d  %s\n", c[k], k}' "$L" | sort -rn
+  echo; echo "Rows that matter before switching to 'on' — triage said SKIP but the review did not say SHIP:"
+  awk -F'\t' '$4=="SKIP" && $5!="SHIP" && $5!="not-run"' "$L" | cut -f1-5 | tail -20
+  echo; echo "Missed escalations — review said BLOCK but triage did not say ADVERSARIAL:"
+  awk -F'\t' '$5=="BLOCK" && $4!="ADVERSARIAL"' "$L" | cut -f1-5 | tail -20
+  exit 0
+fi
 found=0
 for f in "$STATE_DIR"/*.limited; do
   [ -e "$f" ] || continue; found=1
