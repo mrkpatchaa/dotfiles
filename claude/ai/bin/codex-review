@@ -6,7 +6,12 @@
 #        CODEX_REVIEW_MODEL_RISKY=<id>  Codex model when a focus is given (auth, payments, schema…); unset → CODEX_REVIEW_MODEL
 #        CODEX_REVIEW_EFFORT=low|medium|high|xhigh   (unset → config.toml)
 #        REVIEW_FALLBACK_MODELS="opencode-go/glm-5.3 opencode-go/kimi-k3 opencode-go/deepseek-v4.1-flash"
-#        REVIEW_NO_OPENCODE=1 → skip the OpenCode fallback     AI_LIMIT_COOLDOWN=1800
+#        REVIEW_NO_OPENCODE=1 → skip the OpenCode fallback
+#        REVIEW_BUDGET=1500      seconds for the whole call, all lanes together (the commit hook passes less)
+#        AI_LANE_TIMEOUT=1200    seconds for one lane     AI_STALL_TIMEOUT=300  seconds of total silence before an OpenCode lane is killed
+#        CODEX_STALL_TIMEOUT=600 the same for Codex, which can reason for minutes without printing and stops by itself when limited
+#        AI_LIMIT_COOLDOWN=1800  skip time for a limited lane that did not say when it resets (when it does say, that time is used)
+#        CODEX_PREFLIGHT=0 → don't read Codex's own usage data before calling it     CODEX_REVIEW_JSON=0 → plain `codex exec` output
 # Exit:  0 = review printed (first line: REVIEWER: <who>)   75 = no reviewer reachable   64 = usage   66 = file missing
 set -u
 . "$(cd "$(dirname "$0")" && pwd)/_common.sh"
@@ -24,7 +29,7 @@ case "$MODE" in
     BASE="${1:-}"; [ $# -gt 0 ] && shift; FOCUS="$*"
     [ -n "$BASE" ] || BASE="$(default_base)"
     PROMPT="Review the changes in this working tree against $BASE (run: git diff $BASE). If a SPEC-*.md or SPEC.md describes this work, check the diff against it; also check the conventions in AGENTS.md. Look for bugs, missing error handling, security issues, spec drift, and tests that pass without testing behaviour.${FOCUS:+ Focus especially on: $FOCUS.} The first line of your answer must be exactly 'VERDICT: SHIP', 'VERDICT: NEEDS WORK' or 'VERDICT: BLOCK'. Then the findings with file:line, most serious first, each with a concrete fix." ;;
-  -h|--help|*) sed -n '2,10p' "$0" >&2; exit 64 ;;
+  -h|--help|*) sed -n '2,15p' "$0" >&2; exit 64 ;;
 esac
 # Model per review: the mid tier by default, the strong one only where a focus says the diff is risky. Protects the Plus quota.
 CM="${CODEX_REVIEW_MODEL:-}"; [ "$MODE" = diff ] && [ -n "${FOCUS:-}" ] && CM="${CODEX_REVIEW_MODEL_RISKY:-$CM}"
@@ -32,35 +37,75 @@ set --; [ -n "$CM" ] && set -- "$@" -m "$CM"
 [ -n "${CODEX_REVIEW_EFFORT:-}" ] && set -- "$@" -c "model_reasoning_effort=\"$CODEX_REVIEW_EFFORT\""
 codex_model() { grep -E '^[[:space:]]*model[[:space:]]*=' .codex/config.toml "$HOME/.codex/config.toml" 2>/dev/null | head -1 | sed -E 's/.*=[[:space:]]*"?([^"[:space:]]*)"?.*/\1/'; }
 
+T0="$(now)"; BUDGET="${REVIEW_BUDGET:-1500}"
+fit_budget() {  # shrink the lane timeout to what is left of the budget; false when under a minute is left
+  local left=$(( BUDGET - ( $(now) - T0 ) )); [ "$left" -ge 60 ] || return 1
+  [ "$LANE_TIMEOUT" -le "$left" ] || LANE_TIMEOUT="$left"; [ "$STALL_TIMEOUT" -le "$LANE_TIMEOUT" ] || STALL_TIMEOUT="$LANE_TIMEOUT"; }
+after_failure() {  # after_failure <lane> <rc> <out> <err> — record why the lane failed and for how long to skip it; echoes limit|stalled|error
+  local lane="$1" rc="$2" out="$3" err="$4"
+  if [ "$rc" = 200 ] || { [ "$rc" -lt 200 ] && failed_on_limit "$out" "$err"; }; then
+    mark_limited "$lane" limit "$err" "$out"
+    echo "codex-review: $lane is at its limit — back $(lane_back "$lane")$([ "$(lane_how "$lane")" = guessed ] && echo ' (no reset time given; that is the default re-probe delay)')" >&2; echo limit
+  elif [ "$rc" = 201 ]; then mark_limited "$lane" stalled; echo stalled
+  elif [ "$rc" = 202 ]; then mark_limited "$lane" timeout; echo stalled
+  else echo "codex-review: $lane failed (exit $rc, not a limit). stderr:" >&2; grep -E '^[^ +-]' "$err" | tail -c 1500 >&2; echo >&2; echo error; fi; }
+
 # 1) Codex (ChatGPT Plus). Model + effort come from .codex/config.toml (project) or ~/.codex/config.toml.
 if ! command -v codex >/dev/null 2>&1; then
   echo "codex-review: codex is not installed or not on PATH — falling back" >&2
-elif recently_limited codex; then
-  echo "codex-review: Codex hit its limit $(minutes_ago codex) min ago — falling back" >&2
 else
-  out="$(mktemp)"; err="$(mktemp)"
-  if codex exec "$@" --sandbox read-only "$PROMPT" >"$out" 2>"$err" </dev/null; then
-    m="${CM:-$(codex_model)}"; echo "REVIEWER: codex (${m:-default model})"; cat "$out"; rm -f "$out" "$err"; exit 0
+  if ! recently_limited codex && [ "${CODEX_PREFLIGHT:-1}" != "0" ]; then   # free check: Codex records its usage windows in its session files
+    e="$("$_PY" "$_BIN/_limits.py" codex-usage --exhausted --since "$(mtime "$STATE_DIR/cleared")" 2>/dev/null | tr -cd '0-9')"; [ -n "$e" ] && mark_limited codex usage-snapshot "$e"
   fi
-  if is_limited_msg "$err" || is_limited_msg "$out"; then mark_limited codex; echo "codex-review: Codex hit its limit — falling back" >&2
-  else echo "codex-review: codex exec failed (not a limit). stderr:" >&2; head -c 1500 "$err" >&2; echo >&2; fi
-  rm -f "$out" "$err"
+  if recently_limited codex; then
+    echo "codex-review: skipping Codex ($(lane_how codex)) — back $(lane_back codex)" >&2
+  elif fit_budget; then
+    out="$(mktemp)"; err="$(mktemp)"; last="$(mktemp)"; rc=0; oc_stall="$STALL_TIMEOUT"
+    # Codex can reason for minutes without printing, and it gives up on its own when limited — so it gets more patience than OpenCode. A false kill here burns Plus quota.
+    STALL_TIMEOUT="${CODEX_STALL_TIMEOUT:-$(( STALL_TIMEOUT > 600 ? STALL_TIMEOUT : 600 ))}"; fit_budget
+    if [ "${CODEX_REVIEW_JSON:-1}" != "0" ]; then   # --json: errors arrive as their own events, so a limit is seen the second it is reported
+      run_lane "codex-review: codex" "$out" "$err" codex exec "$@" --json -o "$last" --sandbox read-only "$PROMPT"; rc=$?
+      if [ $rc -ne 0 ] && [ $rc -lt 200 ] && grep -Eiq 'unexpected argument|unrecognized (option|argument)|unknown (option|argument)|invalid option' "$err"; then
+        echo "codex-review: this codex does not accept --json/-o — using plain output" >&2; CODEX_REVIEW_JSON=0
+      elif [ $rc -eq 0 ] && [ ! -s "$last" ]; then "$_PY" "$_BIN/_limits.py" codex-last "$out" > "$last" 2>/dev/null
+      fi
+    fi
+    if [ "${CODEX_REVIEW_JSON:-1}" = "0" ]; then run_lane "codex-review: codex" "$last" "$err" codex exec "$@" --sandbox read-only "$PROMPT"; rc=$?; cp "$last" "$out"; fi
+    if [ $rc -eq 0 ] && [ -s "$last" ]; then
+      m="${CM:-$(codex_model)}"; echo "REVIEWER: codex (${m:-default model})"; cat "$last"; rm -f "$out" "$err" "$last"; exit 0
+    fi
+    [ $rc -eq 0 ] && rc=1   # exit 0 without a review is a failure
+    after_failure codex "$rc" "$out" "$err" >/dev/null
+    rm -f "$out" "$err" "$last"; STALL_TIMEOUT="$oc_stall"
+  fi
 fi
 
-# 2) OpenCode Go reviewer (different vendor, read-only: edits and shell denied except git read commands)
+# 2) OpenCode Go reviewer (different vendor, read-only: edits and shell denied except git read commands).
+# `opencode run` retries a limited provider forever and prints nothing while it does (anomalyco/opencode #40330, #21960), so:
+# --print-logs puts the provider's error on stderr where the watchdog reads it, and silence past AI_STALL_TIMEOUT kills the lane.
 if [ "${REVIEW_NO_OPENCODE:-0}" != "1" ] && command -v opencode >/dev/null 2>&1; then
+  go_limited=0
   for m in ${REVIEW_FALLBACK_MODELS:-opencode-go/glm-5.3 opencode-go/kimi-k3 opencode-go/deepseek-v4.1-flash}; do
-    if recently_limited "$m"; then echo "codex-review: skipping $m (limited $(minutes_ago "$m") min ago)" >&2; continue; fi
+    if recently_limited "$m"; then echo "codex-review: skipping $m — back $(lane_back "$m")" >&2; continue; fi
+    fit_budget || { echo "codex-review: review budget of ${BUDGET}s used up" >&2; break; }
     out="$(mktemp)"; err="$(mktemp)"
-    if OPENCODE_PERMISSION='{"edit":"deny","bash":{"*":"deny","git diff*":"allow","git status*":"allow","git log*":"allow","git show*":"allow"}}' \
-       opencode run --model "$m" --variant high --auto "$PROMPT" >"$out" 2>"$err" </dev/null; then
+    run_lane "codex-review: $m" "$out" "$err" env OPENCODE_PERMISSION='{"edit":"deny","bash":{"*":"deny","git diff*":"allow","git status*":"allow","git log*":"allow","git show*":"allow"}}' \
+      opencode run --print-logs --model "$m" --variant high --auto "$PROMPT"; rc=$?
+    if [ $rc -eq 0 ] && [ -s "$out" ]; then
       echo "REVIEWER: $m (fallback — Codex unavailable)"; cat "$out"; rm -f "$out" "$err"; exit 0
     fi
-    if is_limited_msg "$err" || is_limited_msg "$out"; then mark_limited "$m"; echo "codex-review: $m hit its limit — next" >&2
-    else echo "codex-review: $m failed (not a limit). stderr:" >&2; head -c 1500 "$err" >&2; echo >&2; fi
+    [ $rc -eq 0 ] && rc=1
+    why="$(after_failure "$m" "$rc" "$out" "$err")"
+    # Go limits are per model on paper, but one exhausted model has been seen to block the whole subscription (anomalyco/opencode #49014).
+    # Two Go models in a row at their limit → stop probing the rest and skip the provider until the earlier of the two resets.
+    if [ "$why" = limit ] && [ "$(provider_of "$m")" = opencode-go ]; then
+      go_limited=$(( go_limited + 1 ))
+      if [ $go_limited -ge 2 ]; then cp "$(lane_key "$m")" "$(lane_key opencode-go)"; echo "codex-review: two Go models at their limit — skipping all of opencode-go until $(lane_back opencode-go)" >&2; rm -f "$out" "$err"; break; fi
+    fi
     rm -f "$out" "$err"
   done
 fi
 
-echo "REVIEWER: none — Codex and OpenCode are both unavailable. Delegate this review to the Claude 'reviewer' agent and flag it as same-vendor in the report." >&2
+back=""; for l in codex opencode-go; do recently_limited "$l" && back="$back $l back $(lane_back "$l");"; done
+echo "REVIEWER: none — no external reviewer answered within $(fmt_dur $(( $(now) - T0 ))).${back:+$back} Delegate this review to the Claude 'reviewer' agent and flag it as same-vendor in the report. \`ai-limits\` shows every lane." >&2
 exit 75

@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # ai-limits — show which lanes recently reported a limit (and are being skipped), or clear the memory.
-# Usage: ai-limits            ai-limits clear            ai-limits triage   (jev-triage vs the real review, from the commit hook's log)
+# Usage: ai-limits            every lane being skipped, until when, and how we know; then Codex's own usage windows
+#        ai-limits clear [lane] forget one lane (codex, opencode-go, opencode-go/glm-5.3 …) or all of them — after buying credits, say
+#        ai-limits triage       jev-triage vs the real review, from the commit hook's log
 set -u
 . "$(cd "$(dirname "$0")" && pwd)/_common.sh"
-if [ "${1:-}" = "clear" ]; then rm -f "$STATE_DIR"/*.limited; echo "cleared"; exit 0; fi
+if [ "${1:-}" = "clear" ]; then
+  if [ -n "${2:-}" ]; then rm -f "$(lane_key "$2")"; echo "cleared $2"; else rm -f "$STATE_DIR"/*.limited; echo "cleared"; fi
+  touch "$STATE_DIR/cleared"; exit 0; fi   # codex-review ignores Codex usage snapshots older than this, so a full window seen earlier does not re-mark Codex at once
 if [ "${1:-}" = "triage" ]; then
   L="$STATE_DIR/jev-triage.log"; [ -s "$L" ] || { echo "no triage log yet ($L)"; exit 0; }
   echo "jev-triage verdict × review verdict (count):"
@@ -12,13 +16,36 @@ if [ "${1:-}" = "triage" ]; then
   awk -F'\t' '$4=="SKIP" && $5!="SHIP" && $5!="not-run"' "$L" | cut -f1-5 | tail -20
   echo; echo "Missed escalations — review said BLOCK but triage did not say ADVERSARIAL:"
   awk -F'\t' '$5=="BLOCK" && $4!="ADVERSARIAL"' "$L" | cut -f1-5 | tail -20
+  echo; echo "Coin flips — a risk score sat within 0.10 of the threshold, or a SKIP failed its second call:"
+  grep -c -E '"near": \["|skip not confirmed' "$L" | awk '{print "  " $1 " rows in the log"}'
+  first="$(head -1 "$L" | cut -c1-10)"; rows=$(wc -l < "$L" | tr -d ' ')
+  judged=$(awk -F'\t' '$5!="not-run" && $5!="-"' "$L" | wc -l | tr -d ' ')
+  bad=$(awk -F'\t' '$4=="SKIP" && $5!="SHIP" && $5!="not-run"' "$L" | wc -l | tr -d ' ')
+  start=$(date -j -f '%Y-%m-%d' "$first" +%s 2>/dev/null || date -d "$first" +%s 2>/dev/null || echo 0)
+  days=$(( start > 0 ? ( $(date +%s) - start ) / 86400 : 0 ))
+  echo; echo "Shadow period: $rows rows since $first ($days days), $judged with a real review to compare against."
+  if [ "$bad" -gt 0 ]; then echo "Decision: stay in shadow — $bad SKIP verdict(s) where the review did not say SHIP. Read them above."
+  elif [ "$days" -ge 14 ] && [ "$judged" -ge 30 ]; then echo "Decision: ready. No bad SKIP in $days days and $judged reviews: 'git config ai-loop.jevtriage on' in the repos you choose."
+  else echo "Decision: keep going — needs 14 days and 30 compared reviews with no bad SKIP (now $days days, $judged reviews)."; fi
   exit 0
 fi
 found=0
 for f in "$STATE_DIR"/*.limited; do
   [ -e "$f" ] || continue; found=1
-  lane="$(basename "$f" .limited)"; age=$(( ( $(date +%s) - $(mtime "$f") ) / 60 ))
-  if [ $(( age * 60 )) -lt "$COOLDOWN" ]; then echo "SKIPPING  $lane  (limit reported $age min ago; re-probes after $(( COOLDOWN / 60 )) min)"
-  else echo "cooled    $lane  (limit reported $age min ago; will be tried again)"; fi
+  lane="$(basename "$f" .limited)"; u="$(sed -n '1p' "$f" | tr -cd '0-9')"; how="$(sed -n '2p' "$f")"; why="$(sed -n '3p' "$f" | cut -c1-160)"
+  [ -n "$u" ] || { u=$(( $(mtime "$f") + COOLDOWN )); how=guessed; }
+  case "$how" in
+    reported) note="reset time given by the lane" ;;
+    usage-snapshot) note="from Codex's own usage data, no request spent" ;;
+    guessed) note="no reset time given — this is the default re-probe delay" ;;
+    stalled) note="went silent and was killed; short skip, then re-probed" ;;
+    timeout) note="ran out of time and was killed; short skip, then re-probed" ;;
+    *) note="$how" ;;
+  esac
+  if [ "$u" -gt "$(now)" ]; then printf 'SKIPPING  %-32s back %s (in %s) — %s\n' "$lane" "$(fmt_clock "$u")" "$(fmt_dur $(( u - $(now) )))" "$note"
+  else printf 'usable    %-32s was out until %s\n' "$lane" "$(fmt_clock "$u")"; fi
+  [ -z "$why" ] || printf '          said: %s\n' "$why"
 done
 [ $found -eq 1 ] || echo "no lane has reported a limit"
+"$_PY" "$_BIN/_limits.py" codex-usage 2>/dev/null
+echo "opencode-go: no usage API yet (anomalyco/opencode #31084) — windows are on the console page; a reset time is known only once a model has refused."

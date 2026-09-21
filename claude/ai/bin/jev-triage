@@ -7,6 +7,10 @@ Out:   line 1  SKIP | REVIEW | ADVERSARIAL
 Always exits 0 and fails open to REVIEW: no key, no network, a timeout or a malformed reply all mean a normal review.
 Key:   $TYPESAFE_API_KEY, else the file $TYPESAFE_KEY_FILE (default ~/.config/typesafe/api-key). Never printed or logged.
 Env:   JEV_API_URL (default https://api.typesafe.ai/v1/systemone)   JEV_MODEL (jev-latest)   JEV_TIMEOUT (6 seconds)
+       JEV_CONFIRM=0 turns off the second call that a SKIP needs (see below).
+Jev is not bit-for-bit repeatable: the same diff can score a few hundredths apart on two calls. SKIP is the one verdict that
+removes a review, so it must hold on two independent calls; if the second call disagrees or fails, the verdict is REVIEW.
+A risk score within NEAR of RISK_AT is recorded as `near` in the JSON so the shadow log shows how often a verdict was a coin flip.
 Privacy: the diff leaves this machine. Lockfiles, env files, keys, binaries and generated types are dropped first, and
 anything that looks like a credential is redacted locally (and escalates the verdict by itself, without asking Jev).
 """
@@ -16,6 +20,7 @@ LIMIT = 60000          # characters of diff sent (~15k tokens; Jev's state limit
 RISK_AT = 0.35         # a risk question at or above this escalates instead of guessing
 SKIP_AT = 0.90         # "trivial" must be at least this...
 SKIP_RISK_MAX = 0.15   # ...with every risk below this, to skip the review
+NEAR = 0.10            # |score - RISK_AT| below this is logged as a near-threshold call
 
 DROP = re.compile(r'(^|/)(\.env[^/]*|[^/]*\.(pem|key|p12|keystore|jks|lock|lockb|snap|png|jpe?g|gif|webp|ico|pdf|zip|mp4|ttf|woff2?)'
                   r'|pnpm-lock\.yaml|package-lock\.json|database\.types\.ts)$', re.I)
@@ -66,33 +71,52 @@ def main():
         try: key = open(f).read().strip()
         except OSError: key = ''
     scores, err = {}, None
-    if not text.strip():
-        err = 'nothing left to send after dropping generated and sensitive files'
-    elif not key:
-        err = 'no TypeSafe key'
-    else:
+
+    def ask():
         body = {'model': os.environ.get('JEV_MODEL', 'jev-latest'), 'state': text[:LIMIT],
                 'questions': {k: {'type': 'noul', 'instructions': v} for k, v in QUESTIONS.items()}}
         req = urllib.request.Request(os.environ.get('JEV_API_URL', 'https://api.typesafe.ai/v1/systemone'),
                                      data=json.dumps(body).encode(), method='POST',
                                      headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
+        with urllib.request.urlopen(req, timeout=float(os.environ.get('JEV_TIMEOUT', '6'))) as r:
+            ans = json.load(r).get('answers') or {}
+        return {k: round(float(ans[k]['noul']), 3) for k in QUESTIONS}
+
+    def skippable(sc):
+        r = max(max(sc.get(k, 0.0), hints.get(k, 0.0)) for k in ('auth', 'money', 'schema', 'tests'))
+        return sc.get('trivial', 0) >= SKIP_AT and r < SKIP_RISK_MAX
+
+    if not text.strip():
+        err = 'nothing left to send after dropping generated and sensitive files'
+    elif not key:
+        err = 'no TypeSafe key'
+    else:
         try:
-            with urllib.request.urlopen(req, timeout=float(os.environ.get('JEV_TIMEOUT', '6'))) as r:
-                ans = json.load(r).get('answers') or {}
-            scores = {k: round(float(ans[k]['noul']), 3) for k in QUESTIONS}
+            scores = ask()
         except Exception as e:                      # fail open; never echo the request (it carries the key)
             err = 'jev call failed: ' + type(e).__name__
 
     risk = {k: max(scores.get(k, 0.0), hints.get(k, 0.0)) for k in ('auth', 'money', 'schema', 'tests')}
     if secret_hit: risk['secret'] = 1.0
     tripped = [k for k, v in risk.items() if v >= RISK_AT]
-    info = dict(scores=scores, path_hints=sorted(hints), secret=secret_hit, files=len(paths), dropped=dropped, truncated=truncated)
+    near = sorted(k for k in ('auth', 'money', 'schema', 'tests') if k in scores and abs(scores[k] - RISK_AT) < NEAR)
+    info = dict(scores=scores, path_hints=sorted(hints), secret=secret_hit, files=len(paths), dropped=dropped, truncated=truncated, near=near)
     if tripped:
         out('ADVERSARIAL', ', '.join(FOCUS[k] for k in tripped), reason='risk: ' + ','.join(tripped), **info)
     if err:
         out('REVIEW', reason=err, **info)
-    if scores.get('trivial', 0) >= SKIP_AT and max(risk.values()) < SKIP_RISK_MAX and not truncated and not dropped:
-        out('SKIP', reason='trivial', **info)
+    if skippable(scores) and not secret_hit and not truncated and not dropped:
+        if os.environ.get('JEV_CONFIRM', '1') == '0':
+            out('SKIP', reason='trivial (unconfirmed)', **info)
+        try:
+            again = ask()
+        except Exception as e:
+            out('REVIEW', reason='skip not confirmed: second call failed: ' + type(e).__name__, **info)
+        info['scores2'] = again
+        info['spread'] = round(max(abs(again[k] - scores[k]) for k in QUESTIONS), 3)
+        if skippable(again):
+            out('SKIP', reason='trivial, confirmed twice', **info)
+        out('REVIEW', reason='skip not confirmed: second call disagreed', **info)
     out('REVIEW', reason='default', **info)
 
 if __name__ == '__main__':
