@@ -191,7 +191,7 @@ alias ls='eza --icons --git'          # Standard list with icons and git status
 alias ll='eza -lh --icons --git'      # Long format, human-readable sizes
 alias la='eza -lah --icons --git'     # Long format including hidden files
 alias tree='eza --tree --icons'       # Directory tree view
-cd() { builtin cd "$@"; ll; }               # Always list directory contents upon 'cd'
+[[ -o interactive ]] && cd() { builtin cd "$@" && ll; }   # List directory contents upon 'cd' (interactive only: eza hangs in scripts)
 
 # bat (replaces cat)
 alias cat='bat'
