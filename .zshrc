@@ -240,6 +240,17 @@ ii() {
     echo
 }
 
+#   rdp: Open the Windows RDP profile, filling host/user from RDP_HOST / RDP_USER (set them in ~/.zshrc.local)
+#   Usage: rdp            or   RDP_HOST=other-pc rdp
+rdp() {
+    local tpl="$HOME/devs/dotfiles/rdp/windows.rdp.template"
+    [ -n "$RDP_HOST" ] || { echo "rdp: set RDP_HOST (and RDP_USER) in ~/.zshrc.local" >&2; return 1; }
+    local out="${TMPDIR:-/tmp}/${RDP_HOST}.rdp"
+    local esc='s/[\\&|]/\\&/g'   # escape sed replacement chars (DOMAIN\user has a backslash)
+    sed -e "s|{{RDP_HOST}}|$(printf '%s' "$RDP_HOST" | sed "$esc")|" \
+        -e "s|{{RDP_USER}}|$(printf '%s' "$RDP_USER" | sed "$esc")|" "$tpl" > "$out" && open "$out"
+}
+
 
 #   ---------------------------------------
 #   7.  SYSTEMS OPERATIONS & INFORMATION
@@ -358,3 +369,6 @@ function compress_pdf() {
 
 # --- ai-loop (2026-09-16): launch aliases + helper scripts on PATH ---
 [ -f "$HOME/devs/dotfiles/claude/aliases.zsh" ] && source "$HOME/devs/dotfiles/claude/aliases.zsh"
+
+# Machine-specific, untracked settings (e.g. RDP_HOST / RDP_USER for `rdp`)
+[ -f "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"

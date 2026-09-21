@@ -55,3 +55,5 @@ package-lock.json
 
 # VSCode
 system-objecttype-extension.d.ts
+# Rendered RDP files (host/user) — only the template is tracked
+*.rdp

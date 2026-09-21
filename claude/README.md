@@ -2,10 +2,9 @@
 
 Install once, in Claude Code:
 
-    /plugin marketplace add /Users/user/devs/dotfiles/claude
-    /plugin install ai@mrk
+    claude plugin marketplace add ~/devs/dotfiles/claude && claude plugin install ai@mrk
 
-(or from a shell: `claude plugin marketplace add /Users/user/devs/dotfiles/claude && claude plugin install ai@mrk`)
+(or inside Claude Code: `/plugin marketplace add <dotfiles clone>/claude` then `/plugin install ai@mrk`)
 
 The marketplace is a local directory, so the plugin loads in place: edit anything under `ai/` and run `/reload-plugins`.
 Skills are namespaced: `/ai:loop`, `/ai:ship`. Agents: `implementer`, `grunt`, `reviewer`. `ai/bin/` is on the Bash tool's PATH while the plugin is enabled.
