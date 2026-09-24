@@ -1,6 +1,6 @@
 {
   "name": "ai",
   "description": "Multi-agent loop for Claude Code: Fable/Opus plans, Codex challenges, Sonnet builds, DeepSeek (OpenCode Go) does the rote parts, Codex QAs — with limit-aware fallbacks.",
-  "version": "0.5.0",
+  "version": "0.5.2",
   "author": { "name": "Médédé Raymond" }
 }

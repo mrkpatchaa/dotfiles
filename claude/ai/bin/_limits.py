@@ -4,6 +4,8 @@
   _limits.py reset FILE...          epoch (seconds) at which the limit described in these outputs lifts, if they say so
   _limits.py codex-usage            last usage snapshot Codex itself wrote to its session files (no request is made)
   _limits.py codex-usage --exhausted [--since EPOCH]   epoch at which Codex is usable again, only if that snapshot shows a window at 100%
+  _limits.py codex-usage --weekly [--since EPOCH]      used % of the longest window (the 7-day one) in that snapshot; nothing if it has reset since
+  _limits.py codex-usage --age [--since EPOCH]         seconds since that snapshot was written; nothing when there is none
   _limits.py codex-last FILE        last agent message from `codex exec --json` output (used when -o wrote nothing)
 """
 import glob, json, os, re, sys, time
@@ -169,6 +171,16 @@ def main(argv):
                     snap = None
             except (IndexError, ValueError):
                 pass
+        if "--age" in argv:
+            if snap:
+                print(int(max(0, NOW - snap["ts"])))
+            return
+        if "--weekly" in argv:
+            if snap:
+                w = max(snap["windows"], key=lambda w: int(w.get("minutes") or 0))
+                if (int(w.get("minutes") or 0) >= 1440 or w["name"] == "secondary") and not (w["reset"] and w["reset"] < NOW):
+                    print(int(w["used"]))
+            return
         if "--exhausted" in argv:
             if snap:
                 full = [w["reset"] for w in snap["windows"] if w["used"] >= 99.5 and w["reset"] and w["reset"] > NOW]

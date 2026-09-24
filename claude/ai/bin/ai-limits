@@ -3,11 +3,16 @@
 # Usage: ai-limits            every lane being skipped, until when, and how we know; then Codex's own usage windows
 #        ai-limits clear [lane] forget one lane (codex, opencode-go, opencode-go/glm-5.3 …) or all of them — after buying credits, say
 #        ai-limits triage       jev-triage vs the real review, from the commit hook's log
+#        ai-limits log [N]      the last N (12) codex-review lane attempts: repo, mode, lane, model, verdict, outcome, seconds, note
 set -u
 . "$(cd "$(dirname "$0")" && pwd)/_common.sh"
 if [ "${1:-}" = "clear" ]; then
   if [ -n "${2:-}" ]; then rm -f "$(lane_key "$2")"; echo "cleared $2"; else rm -f "$STATE_DIR"/*.limited; echo "cleared"; fi
   touch "$STATE_DIR/cleared"; exit 0; fi   # codex-review ignores Codex usage snapshots older than this, so a full window seen earlier does not re-mark Codex at once
+if [ "${1:-}" = "log" ]; then
+  L="$STATE_DIR/reviews.log"; [ -s "$L" ] || { echo "no review log yet ($L) — codex-review writes it since plugin 0.5.1"; exit 0; }
+  tail -n "${2:-12}" "$L" | awk -F'\t' '{printf "%s  %-15s %-4s %-30s %-10s %-8s %5s  %s\n", $1, substr($2,1,15), $3, $4" ("$5")", $6, $7, $8, $9}'
+  exit 0; fi
 if [ "${1:-}" = "triage" ]; then
   L="$STATE_DIR/jev-triage.log"; [ -s "$L" ] || { echo "no triage log yet ($L)"; exit 0; }
   echo "jev-triage verdict × review verdict (count):"
@@ -45,7 +50,14 @@ for f in "$STATE_DIR"/*.limited; do
   if [ "$u" -gt "$(now)" ]; then printf 'SKIPPING  %-32s back %s (in %s) — %s\n' "$lane" "$(fmt_clock "$u")" "$(fmt_dur $(( u - $(now) )))" "$note"
   else printf 'usable    %-32s was out until %s\n' "$lane" "$(fmt_clock "$u")"; fi
   [ -z "$why" ] || printf '          said: %s\n' "$why"
+  if [ "$lane" = codex ] && [ "$u" -gt "$(now)" ] && [ "${CODEX_RECHECK:-1}" != 0 ]; then
+    d=$(( ${CODEX_RECHECK_EVERY:-1800} - ( $(now) - $(mtime "$STATE_DIR/codex.probed") ) ))
+    if [ "$d" -gt 0 ]; then d="in $(fmt_dur "$d")"; else d="at the next review"; fi
+    printf '          re-check: one-word %s turn %s (CODEX_RECHECK_EVERY) — limits reset since? `ai-limits clear codex` skips the wait\n' "${CODEX_REVIEW_MODEL_CHEAP:-gpt-6-luna}" "$d"
+  fi
 done
 [ $found -eq 1 ] || echo "no lane has reported a limit"
 "$_PY" "$_BIN/_limits.py" codex-usage 2>/dev/null
+w="$("$_PY" "$_BIN/_limits.py" codex-usage --weekly --since "$(mtime "$STATE_DIR/cleared")" 2>/dev/null | tr -cd '0-9')"; d="${CODEX_WEEKLY_DOWNGRADE_AT:-80}"
+[ -n "$w" ] && [ "$d" != 0 ] && [ "$w" -ge "$d" ] && echo "codex: 7-day window at ${w}% ≥ CODEX_WEEKLY_DOWNGRADE_AT ($d) — every review runs on ${CODEX_REVIEW_MODEL_CHEAP:-gpt-6-luna} until it resets. \`ai-limits log\` lists the calls."
 echo "opencode-go: no usage API yet (anomalyco/opencode #31084) — windows are on the console page; a reset time is known only once a model has refused."

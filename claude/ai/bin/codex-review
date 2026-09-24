@@ -14,6 +14,11 @@
 #        CODEX_STALL_TIMEOUT=600 the same for Codex, which can reason for minutes without printing and stops by itself when limited
 #        AI_LIMIT_COOLDOWN=1800  skip time for a limited lane that did not say when it resets (when it does say, that time is used)
 #        CODEX_PREFLIGHT=0 → don't read Codex's own usage data before calling it     CODEX_REVIEW_JSON=0 → plain `codex exec` output
+#        CODEX_WEEKLY_DOWNGRADE_AT=80   once Codex's last usage snapshot shows the 7-day window at this % or more, every review runs on
+#        CODEX_REVIEW_MODEL_CHEAP=gpt-6-luna at CODEX_REVIEW_EFFORT_CHEAP=high and the REVIEWER line says so (0 = never downgrade)
+#        Every call appends one line per lane to $STATE_DIR/reviews.log — `ai-limits log` shows who answered, the verdict and why not
+#        CODEX_RECHECK_EVERY=1800  a stored Codex skip, or a snapshot that would downgrade, older than this is re-checked with a one-word
+#        turn on the cheap tier before it is believed (limits get reset, credits get bought). CODEX_RECHECK=0 → trust the stored date.
 # Exit:  0 = review printed (first line: REVIEWER: <who>)   75 = no reviewer reachable   64 = usage   66 = file missing
 set -u
 . "$(cd "$(dirname "$0")" && pwd)/_common.sh"
@@ -31,13 +36,12 @@ case "$MODE" in
     BASE="${1:-}"; [ $# -gt 0 ] && shift; FOCUS="$*"
     [ -n "$BASE" ] || BASE="$(default_base)"
     PROMPT="Review the changes in this working tree against $BASE (run: git diff $BASE). If a SPEC-*.md or SPEC.md describes this work, check the diff against it; also check the conventions in AGENTS.md. Look for bugs, missing error handling, security issues, spec drift, and tests that pass without testing behaviour.${FOCUS:+ Focus especially on: $FOCUS.} The first line of your answer must be exactly 'VERDICT: SHIP', 'VERDICT: NEEDS WORK' or 'VERDICT: BLOCK'. Then the findings with file:line, most serious first, each with a concrete fix." ;;
-  -h|--help|*) sed -n '2,17p' "$0" >&2; exit 64 ;;
+  -h|--help|*) sed -n '2,22p' "$0" >&2; exit 64 ;;
 esac
 # Model per review: the mid tier by default, the strong one only where a focus says the diff is risky. Protects the Plus quota.
 CM="${CODEX_REVIEW_MODEL:-}"; CE="${CODEX_REVIEW_EFFORT:-}"
 if [ "$MODE" = diff ] && [ -n "${FOCUS:-}" ]; then CM="${CODEX_REVIEW_MODEL_RISKY:-$CM}"; CE="${CODEX_REVIEW_EFFORT_RISKY:-$CE}"; fi
-set --; [ -n "$CM" ] && set -- "$@" -m "$CM"
-[ -n "$CE" ] && set -- "$@" -c "model_reasoning_effort=\"$CE\""
+ASKED="$CM"   # what the caller wanted; the weekly-budget rule below may swap in the cheap tier
 codex_model() { grep -E '^[[:space:]]*model[[:space:]]*=' .codex/config.toml "$HOME/.codex/config.toml" 2>/dev/null | head -1 | sed -E 's/.*=[[:space:]]*"?([^"[:space:]]*)"?.*/\1/'; }
 
 T0="$(now)"; BUDGET="${REVIEW_BUDGET:-1500}"
@@ -51,34 +55,82 @@ after_failure() {  # after_failure <lane> <rc> <out> <err> — record why the la
     echo "codex-review: $lane is at its limit — back $(lane_back "$lane")$([ "$(lane_how "$lane")" = guessed ] && echo ' (no reset time given; that is the default re-probe delay)')" >&2; echo limit
   elif [ "$rc" = 201 ]; then mark_limited "$lane" stalled; echo stalled
   elif [ "$rc" = 202 ]; then mark_limited "$lane" timeout; echo stalled
-  else echo "codex-review: $lane failed (exit $rc, not a limit). stderr:" >&2; grep -E '^[^ +-]' "$err" | tail -c 1500 >&2; echo >&2; echo error; fi; }
+  else echo "codex-review: $lane failed (exit $rc, not a limit). stderr:" >&2; grep -E '^[^ +-]' "$err" | tail -c 1500 >&2; echo >&2; keep_stderr "$lane" "$err"; echo error; fi; }
+keep_stderr() { tail -c 8000 "$2" > "$STATE_DIR/$(printf '%s' "$1" | tr '/:' '__').stderr" 2>/dev/null; }   # full stderr of the last failure per lane, for `ai-limits log` readers
+verdict_of() { grep -m1 -o 'VERDICT: [A-Z ]*' "$1" 2>/dev/null | sed 's/VERDICT: //; s/ *$//'; }
+weekly_used() { "$_PY" "$_BIN/_limits.py" codex-usage --weekly --since "$(mtime "$STATE_DIR/cleared")" 2>/dev/null | tr -cd '0-9'; }   # 7-day window %, empty when unknown
+REPO="$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")"
+# log_review <lane> <model> <verdict> <outcome> <note> — one tab-separated line per lane attempt in $STATE_DIR/reviews.log (`ai-limits log`)
+log_review() { printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%ss\t%s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$REPO" "$MODE" "$1" "${2:-default}" "${3:--}" "$4" "$(( $(now) - T0 ))" "$(printf '%s' "$5" | tr '\t\n' '  ' | cut -c1-220)" >> "$STATE_DIR/reviews.log"; }
+fail_note() {  # fail_note <lane> <rc> <why> <out> <err> — for the log: the reset time and the lane's words, or the last useful stderr line
+  local t; if [ "$3" = limit ]; then echo "back $(lane_back "$1"); $(sed -n '3p' "$(lane_key "$1")" | sed -E 's/^.*"message": ?"//')"; return; fi
+  t="$(grep -v ' working, ' "$5" 2>/dev/null | grep -i -m1 -A2 'error' | tr '\n' ' ' | sed 's/ *$//')"; [ -n "$t" ] || t="$(grep -E '^[^ +-]' "$5" 2>/dev/null | tail -1)"
+  [ -n "$t" ] || t="$(tail -c 300 "$4" 2>/dev/null | tail -1)"; echo "exit $2; $t (stderr: $STATE_DIR/$(printf '%s' "$1" | tr '/:' '__').stderr)"; }
+PROBED="$STATE_DIR/codex.probed"
+recheck_due() { [ "${CODEX_RECHECK:-1}" != 0 ] && [ $(( $(now) - $(mtime "$PROBED") )) -ge "${CODEX_RECHECK_EVERY:-1800}" ]; }
+snapshot_age() { "$_PY" "$_BIN/_limits.py" codex-usage --age --since "$(mtime "$STATE_DIR/cleared")" 2>/dev/null | tr -cd '0-9'; }
+# codex_probe — is Codex really out? Limits get reset (OpenAI's saved reset, used 24 Sep 2026), credits get bought, and a stored date knows nothing
+# of it. One word on the cheap tier, no tools, ≤ CODEX_PROBE_TIMEOUT s: a refusal is free and re-dates the mark; an answer clears it and leaves a
+# fresh usage snapshot behind for the pre-flight and the weekly rule. Returns 0 answered, 1 refused (limit), 2 inconclusive (nothing changed).
+codex_probe() {
+  local o e l rc lt="$LANE_TIMEOUT" st="$STALL_TIMEOUT" m="${CODEX_REVIEW_MODEL_CHEAP:-gpt-6-luna}"
+  touch "$PROBED" "$STATE_DIR/cleared"; sleep 1   # older snapshots are void from here — the probe writes the one that counts
+  o="$(mktemp)"; e="$(mktemp)"; l="$(mktemp)"; LANE_TIMEOUT="${CODEX_PROBE_TIMEOUT:-90}"; STALL_TIMEOUT="$LANE_TIMEOUT"
+  if [ "${CODEX_REVIEW_JSON:-1}" != "0" ]; then run_lane "codex-review: codex probe" "$o" "$e" codex exec -m "$m" -c 'model_reasoning_effort="low"' -c 'approval_policy="never"' --sandbox read-only --skip-git-repo-check --json -o "$l" "Reply with exactly: OK"; rc=$?
+  else run_lane "codex-review: codex probe" "$l" "$e" codex exec -m "$m" -c 'model_reasoning_effort="low"' -c 'approval_policy="never"' --sandbox read-only --skip-git-repo-check "Reply with exactly: OK"; rc=$?; cp "$l" "$o"; fi
+  LANE_TIMEOUT="$lt"; STALL_TIMEOUT="$st"
+  if [ $rc -eq 0 ] && [ -s "$l" ]; then
+    rm -f "$(lane_key codex)"; echo "codex-review: Codex answered a probe — usable; the stored limit was stale" >&2
+    log_review codex-probe "$m" - answered "weekly now $(weekly_used)%"; rm -f "$o" "$e" "$l"; return 0
+  elif [ $rc -eq 200 ] || { [ $rc -lt 200 ] && failed_on_limit "$o" "$e"; }; then
+    mark_limited codex limit "$e" "$o"; echo "codex-review: probe refused — Codex still out, back $(lane_back codex)" >&2
+    log_review codex-probe "$m" - limit "$(fail_note codex "$rc" limit "$o" "$e")"; rm -f "$o" "$e" "$l"; return 1
+  fi
+  echo "codex-review: probe inconclusive (exit $rc) — keeping what was known" >&2; keep_stderr codex-probe "$e"; log_review codex-probe "$m" - unknown "$(fail_note codex-probe "$rc" error "$o" "$e")"; rm -f "$o" "$e" "$l"; return 2; }
 
 # 1) Codex (ChatGPT Plus). Model + effort come from .codex/config.toml (project) or ~/.codex/config.toml.
 if ! command -v codex >/dev/null 2>&1; then
   echo "codex-review: codex is not installed or not on PATH — falling back" >&2
 else
+  # A stored skip is only as good as its date: re-check it with a probe once it is older than CODEX_RECHECK_EVERY (30 min), not on every call.
+  if recently_limited codex && recheck_due; then codex_probe; fi
   if ! recently_limited codex && [ "${CODEX_PREFLIGHT:-1}" != "0" ]; then   # free check: Codex records its usage windows in its session files
     e="$("$_PY" "$_BIN/_limits.py" codex-usage --exhausted --since "$(mtime "$STATE_DIR/cleared")" 2>/dev/null | tr -cd '0-9')"; [ -n "$e" ] && mark_limited codex usage-snapshot "$e"
   fi
+  # Weekly budget: past CODEX_WEEKLY_DOWNGRADE_AT % of the 7-day window (Codex's own last snapshot, free to read), every review runs on the
+  # cheap tier. 21–24 Sep 2026: 20 Astra + 22 Sol reviews spent a Plus week in 2.5 days; 14 Luna reviews on the same days did not move the counter.
+  WEEKLY="$(weekly_used)"; DOWN_AT="${CODEX_WEEKLY_DOWNGRADE_AT:-80}"; CHEAP="${CODEX_REVIEW_MODEL_CHEAP:-gpt-6-luna}"; downgraded=""
+  # The figure may be stale too (a reset since the last turn): a snapshot older than CODEX_RECHECK_EVERY that would downgrade is refreshed first.
+  if ! recently_limited codex && [ "$DOWN_AT" != 0 ] && [ -n "$WEEKLY" ] && [ "$WEEKLY" -ge "$DOWN_AT" ] && [ "$CM" != "$CHEAP" ] \
+     && [ "$(snapshot_age)" -ge "${CODEX_RECHECK_EVERY:-1800}" ] 2>/dev/null && recheck_due; then codex_probe; WEEKLY="$(weekly_used)"; fi
   if recently_limited codex; then
-    echo "codex-review: skipping Codex ($(lane_how codex)) — back $(lane_back codex)" >&2
+    echo "codex-review: skipping Codex ($(lane_how codex)) — back $(lane_back codex)" >&2; log_review codex "$CM" - skipped "$(lane_how codex); back $(lane_back codex)"
   elif fit_budget; then
+    if [ "$DOWN_AT" != 0 ] && [ -n "$WEEKLY" ] && [ "$WEEKLY" -ge "$DOWN_AT" ] && [ "$CM" != "$CHEAP" ]; then
+      downgraded="7-day window at ${WEEKLY}% — ${CM:-the config.toml model} replaced by $CHEAP"; CM="$CHEAP"; CE="${CODEX_REVIEW_EFFORT_CHEAP:-high}"
+      echo "codex-review: $downgraded (CODEX_WEEKLY_DOWNGRADE_AT=$DOWN_AT)" >&2
+    fi
+    set --; [ -n "$CM" ] && set -- "$@" -m "$CM"; [ -n "$CE" ] && set -- "$@" -c "model_reasoning_effort=\"$CE\""
     out="$(mktemp)"; err="$(mktemp)"; last="$(mktemp)"; rc=0; oc_stall="$STALL_TIMEOUT"
     # Codex can reason for minutes without printing, and it gives up on its own when limited — so it gets more patience than OpenCode. A false kill here burns Plus quota.
     STALL_TIMEOUT="${CODEX_STALL_TIMEOUT:-$(( STALL_TIMEOUT > 600 ? STALL_TIMEOUT : 600 ))}"; fit_budget
+    # approval_policy=never: with the default on-request policy, codex 0.155 spawns a `codex-auto-review` guardian sub-session per approval — 23 of
+    # them in three days, 1.4M tokens of Plus quota to approve read-only commands. Under `never` the sandbox just denies what it would have asked
+    # about. Passed as a config override: `codex exec` 0.155.1 has no -a/--ask-for-approval flag (exit 2, seen live on 24 Sep 2026).
     if [ "${CODEX_REVIEW_JSON:-1}" != "0" ]; then   # --json: errors arrive as their own events, so a limit is seen the second it is reported
-      run_lane "codex-review: codex" "$out" "$err" codex exec "$@" --json -o "$last" --sandbox read-only "$PROMPT"; rc=$?
+      run_lane "codex-review: codex" "$out" "$err" codex exec "$@" -c 'approval_policy="never"' --json -o "$last" --sandbox read-only "$PROMPT"; rc=$?
       if [ $rc -ne 0 ] && [ $rc -lt 200 ] && grep -Eiq 'unexpected argument|unrecognized (option|argument)|unknown (option|argument)|invalid option' "$err"; then
         echo "codex-review: this codex does not accept --json/-o — using plain output" >&2; CODEX_REVIEW_JSON=0
       elif [ $rc -eq 0 ] && [ ! -s "$last" ]; then "$_PY" "$_BIN/_limits.py" codex-last "$out" > "$last" 2>/dev/null
       fi
     fi
-    if [ "${CODEX_REVIEW_JSON:-1}" = "0" ]; then run_lane "codex-review: codex" "$last" "$err" codex exec "$@" --sandbox read-only "$PROMPT"; rc=$?; cp "$last" "$out"; fi
+    if [ "${CODEX_REVIEW_JSON:-1}" = "0" ]; then run_lane "codex-review: codex" "$last" "$err" codex exec "$@" -c 'approval_policy="never"' --sandbox read-only "$PROMPT"; rc=$?; cp "$last" "$out"; fi
     if [ $rc -eq 0 ] && [ -s "$last" ]; then
-      m="${CM:-$(codex_model)}"; echo "REVIEWER: codex (${m:-default model})"; cat "$last"; rm -f "$out" "$err" "$last"; exit 0
+      m="${CM:-$(codex_model)}"; echo "REVIEWER: codex (${m:-default model}${downgraded:+, downgraded: 7-day window at ${WEEKLY}%})"; cat "$last"
+      a="$(weekly_used)"; log_review codex "$m" "$(verdict_of "$last")" ok "weekly ${WEEKLY:-?}% → ${a:-?}%${downgraded:+; asked for ${ASKED:-the config.toml model}}"; rm -f "$out" "$err" "$last"; exit 0
     fi
     [ $rc -eq 0 ] && rc=1   # exit 0 without a review is a failure
-    after_failure codex "$rc" "$out" "$err" >/dev/null
+    why="$(after_failure codex "$rc" "$out" "$err")"; log_review codex "$CM" - "$why" "$(fail_note codex "$rc" "$why" "$out" "$err")"
     rm -f "$out" "$err" "$last"; STALL_TIMEOUT="$oc_stall"
   fi
 fi
@@ -89,16 +141,16 @@ fi
 if [ "${REVIEW_NO_OPENCODE:-0}" != "1" ] && command -v opencode >/dev/null 2>&1; then
   go_limited=0
   for m in ${REVIEW_FALLBACK_MODELS:-opencode-go/glm-5.3 opencode-go/kimi-k3 opencode-go/deepseek-v4.1-flash}; do
-    if recently_limited "$m"; then echo "codex-review: skipping $m — back $(lane_back "$m")" >&2; continue; fi
+    if recently_limited "$m"; then echo "codex-review: skipping $m — back $(lane_back "$m")" >&2; log_review "$m" "$m" - skipped "back $(lane_back "$m")"; continue; fi
     fit_budget || { echo "codex-review: review budget of ${BUDGET}s used up" >&2; break; }
     out="$(mktemp)"; err="$(mktemp)"
     run_lane "codex-review: $m" "$out" "$err" env OPENCODE_PERMISSION='{"edit":"deny","bash":{"*":"deny","git diff*":"allow","git status*":"allow","git log*":"allow","git show*":"allow"}}' \
       opencode run --print-logs --model "$m" --variant high --auto "$PROMPT"; rc=$?
     if [ $rc -eq 0 ] && [ -s "$out" ]; then
-      echo "REVIEWER: $m (fallback — Codex unavailable)"; cat "$out"; rm -f "$out" "$err"; exit 0
+      echo "REVIEWER: $m (fallback — Codex unavailable)"; cat "$out"; log_review "$m" "$m" "$(verdict_of "$out")" ok fallback; rm -f "$out" "$err"; exit 0
     fi
     [ $rc -eq 0 ] && rc=1
-    why="$(after_failure "$m" "$rc" "$out" "$err")"
+    why="$(after_failure "$m" "$rc" "$out" "$err")"; log_review "$m" "$m" - "$why" "$(fail_note "$m" "$rc" "$why" "$out" "$err")"
     # Go limits are per model on paper, but one exhausted model has been seen to block the whole subscription (anomalyco/opencode #49014).
     # Two Go models in a row at their limit → stop probing the rest and skip the provider until the earlier of the two resets.
     if [ "$why" = limit ] && [ "$(provider_of "$m")" = opencode-go ]; then
@@ -110,5 +162,6 @@ if [ "${REVIEW_NO_OPENCODE:-0}" != "1" ] && command -v opencode >/dev/null 2>&1;
 fi
 
 back=""; for l in codex opencode-go; do recently_limited "$l" && back="$back $l back $(lane_back "$l");"; done
+log_review none - - none "${back:-no lane answered}$(command -v opencode >/dev/null 2>&1 || echo '; opencode not on PATH')"
 echo "REVIEWER: none — no external reviewer answered within $(fmt_dur $(( $(now) - T0 ))).${back:+$back} Delegate this review to the Claude 'reviewer' agent and flag it as same-vendor in the report. \`ai-limits\` shows every lane." >&2
 exit 75
