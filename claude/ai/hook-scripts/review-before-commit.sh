@@ -34,7 +34,9 @@ fi
 errf="$(mktemp)"
 # A hook must answer before Claude Code's hook timeout (600 s unless the hook entry in .claude/settings.json sets "timeout"), so the review gets
 # a smaller budget here than from /ai:loop. With a shorter hook timeout, export AI_HOOK_REVIEW_BUDGET to ~60 s less than it.
-review="$(REVIEW_BUDGET="${AI_HOOK_REVIEW_BUDGET:-540}" AI_LANE_TIMEOUT="${AI_HOOK_LANE_TIMEOUT:-400}" AI_STALL_TIMEOUT="${AI_HOOK_STALL_TIMEOUT:-180}" CODEX_STALL_TIMEOUT="${AI_HOOK_CODEX_STALL_TIMEOUT:-300}" "$BIN/codex-review" diff "" "$focus" 2>"$errf")"; rc=$?
+# Commit reviews are small and frequent: CODEX_REVIEW_MODEL_COMMIT / _EFFORT_COMMIT (aliases.zsh) replace the ordinary tier here only.
+# A focus from jev-triage still selects the risky tier inside codex-review.
+review="$(CODEX_REVIEW_MODEL="${CODEX_REVIEW_MODEL_COMMIT:-${CODEX_REVIEW_MODEL:-}}" CODEX_REVIEW_EFFORT="${CODEX_REVIEW_EFFORT_COMMIT:-${CODEX_REVIEW_EFFORT:-}}" REVIEW_BUDGET="${AI_HOOK_REVIEW_BUDGET:-540}" AI_LANE_TIMEOUT="${AI_HOOK_LANE_TIMEOUT:-400}" AI_STALL_TIMEOUT="${AI_HOOK_STALL_TIMEOUT:-180}" CODEX_STALL_TIMEOUT="${AI_HOOK_CODEX_STALL_TIMEOUT:-300}" "$BIN/codex-review" diff "" "$focus" 2>"$errf")"; rc=$?
 case $rc in
   0) ;;
   75) tlog "unreachable"; echo "ai-loop: no reviewer reachable — commit allowed without review. $(grep -m1 '^REVIEWER: none' "$errf" | sed 's/^REVIEWER: none — //; s/ Delegate this review.*//')" >&2; rm -f "$errf"; exit 0 ;;
