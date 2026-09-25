@@ -8,6 +8,7 @@
 #        CODEX_REVIEW_EFFORT_RISKY=<level>  effort when a focus is given; unset → CODEX_REVIEW_EFFORT (same model, more thinking)
 #        The commit hook swaps in CODEX_REVIEW_MODEL_COMMIT / CODEX_REVIEW_EFFORT_COMMIT when set (small diffs, many calls).
 #        REVIEW_FALLBACK_MODELS="opencode-go/glm-5.3 opencode-go/kimi-k3 opencode-go/deepseek-v4.1-flash"
+#        OPENCODE_FREE_MODELS="…"   free models are asked before these (REVIEW_FREE=0: not for reviews; repo opt-out: git config ai-loop.freelane off)
 #        REVIEW_NO_OPENCODE=1 → skip the OpenCode fallback
 #        REVIEW_BUDGET=1500      seconds for the whole call, all lanes together (the commit hook passes less)
 #        AI_LANE_TIMEOUT=1200    seconds for one lane     AI_STALL_TIMEOUT=300  seconds of total silence before an OpenCode lane is killed
@@ -15,7 +16,7 @@
 #        AI_LIMIT_COOLDOWN=1800  skip time for a limited lane that did not say when it resets (when it does say, that time is used)
 #        CODEX_PREFLIGHT=0 → don't read Codex's own usage data before calling it     CODEX_REVIEW_JSON=0 → plain `codex exec` output
 #        CODEX_WEEKLY_DOWNGRADE_AT=80   once Codex's last usage snapshot shows the 7-day window at this % or more, every review runs on
-#        CODEX_REVIEW_MODEL_CHEAP=gpt-6-luna at CODEX_REVIEW_EFFORT_CHEAP=high and the REVIEWER line says so (0 = never downgrade)
+#        CODEX_REVIEW_MODEL_CHEAP=gpt-6-luna at CODEX_REVIEW_EFFORT_CHEAP=high (max is lowered to high when REVIEW_BUDGET < 900) and the REVIEWER line says so (0 = never downgrade)
 #        Every call appends one line per lane to $STATE_DIR/reviews.log — `ai-limits log` shows who answered, the verdict and why not
 #        CODEX_RECHECK_EVERY=1800  a stored Codex skip, or a snapshot that would downgrade, older than this is re-checked with a one-word
 #        turn on the cheap tier before it is believed (limits get reset, credits get bought). CODEX_RECHECK=0 → trust the stored date.
@@ -55,7 +56,9 @@ after_failure() {  # after_failure <lane> <rc> <out> <err> — record why the la
     echo "codex-review: $lane is at its limit — back $(lane_back "$lane")$([ "$(lane_how "$lane")" = guessed ] && echo ' (no reset time given; that is the default re-probe delay)')" >&2; echo limit
   elif [ "$rc" = 201 ]; then mark_limited "$lane" stalled; echo stalled
   elif [ "$rc" = 202 ]; then mark_limited "$lane" timeout; echo stalled
-  else echo "codex-review: $lane failed (exit $rc, not a limit). stderr:" >&2; grep -E '^[^ +-]' "$err" | tail -c 1500 >&2; echo >&2; keep_stderr "$lane" "$err"; echo error; fi; }
+  else echo "codex-review: $lane failed (exit $rc, not a limit). stderr:" >&2; grep -E '^[^ +-]' "$err" | tail -c 1500 >&2; echo >&2; keep_stderr "$lane" "$err"
+    is_free "$lane" && mark_limited "$lane" stalled   # a free period that ended: skip that model for 15 min
+    echo error; fi; }
 keep_stderr() { tail -c 8000 "$2" > "$STATE_DIR/$(printf '%s' "$1" | tr '/:' '__').stderr" 2>/dev/null; }   # full stderr of the last failure per lane, for `ai-limits log` readers
 verdict_of() { grep -m1 -o 'VERDICT: [A-Z ]*' "$1" 2>/dev/null | sed 's/VERDICT: //; s/ *$//'; }
 weekly_used() { "$_PY" "$_BIN/_limits.py" codex-usage --weekly --since "$(mtime "$STATE_DIR/cleared")" 2>/dev/null | tr -cd '0-9'; }   # 7-day window %, empty when unknown
@@ -108,6 +111,8 @@ else
   elif fit_budget; then
     if [ "$DOWN_AT" != 0 ] && [ -n "$WEEKLY" ] && [ "$WEEKLY" -ge "$DOWN_AT" ] && [ "$CM" != "$CHEAP" ]; then
       downgraded="7-day window at ${WEEKLY}% — ${CM:-the config.toml model} replaced by $CHEAP"; CM="$CHEAP"; CE="${CODEX_REVIEW_EFFORT_CHEAP:-high}"
+      # max is slow: inside a short budget (the commit hook's 540 s) the cheap tier stays at high
+      [ "$CE" = max ] && [ "$BUDGET" -lt 900 ] 2>/dev/null && CE=high
       echo "codex-review: $downgraded (CODEX_WEEKLY_DOWNGRADE_AT=$DOWN_AT)" >&2
     fi
     set --; [ -n "$CM" ] && set -- "$@" -m "$CM"; [ -n "$CE" ] && set -- "$@" -c "model_reasoning_effort=\"$CE\""
@@ -140,14 +145,17 @@ fi
 # --print-logs puts the provider's error on stderr where the watchdog reads it, and silence past AI_STALL_TIMEOUT kills the lane.
 if [ "${REVIEW_NO_OPENCODE:-0}" != "1" ] && command -v opencode >/dev/null 2>&1; then
   go_limited=0
-  for m in ${REVIEW_FALLBACK_MODELS:-opencode-go/glm-5.3 opencode-go/kimi-k3 opencode-go/deepseek-v4.1-flash}; do
+  # Free models (OPENCODE_FREE_MODELS) are asked before the paid fallbacks; REVIEW_FREE=0 keeps them out of reviews.
+  FB=""; FREE=""; [ "${REVIEW_FREE:-1}" = 0 ] || FREE="$(free_models)"
+  for m in $FREE ${REVIEW_FALLBACK_MODELS:-opencode-go/glm-5.3 opencode-go/kimi-k3 opencode-go/deepseek-v4.1-flash}; do case " $FB " in *" $m "*) ;; *) FB="$FB $m" ;; esac; done
+  for m in $FB; do
     if recently_limited "$m"; then echo "codex-review: skipping $m — back $(lane_back "$m")" >&2; log_review "$m" "$m" - skipped "back $(lane_back "$m")"; continue; fi
     fit_budget || { echo "codex-review: review budget of ${BUDGET}s used up" >&2; break; }
     out="$(mktemp)"; err="$(mktemp)"
     run_lane "codex-review: $m" "$out" "$err" env OPENCODE_PERMISSION='{"edit":"deny","bash":{"*":"deny","git diff*":"allow","git status*":"allow","git log*":"allow","git show*":"allow"}}' \
       opencode run --print-logs --model "$m" --variant high --auto "$PROMPT"; rc=$?
     if [ $rc -eq 0 ] && [ -s "$out" ]; then
-      echo "REVIEWER: $m (fallback — Codex unavailable)"; cat "$out"; log_review "$m" "$m" "$(verdict_of "$out")" ok fallback; rm -f "$out" "$err"; exit 0
+      echo "REVIEWER: $m ($(is_free "$m" && echo 'free, ')fallback — Codex unavailable)"; cat "$out"; log_review "$m" "$m" "$(verdict_of "$out")" ok fallback; rm -f "$out" "$err"; exit 0
     fi
     [ $rc -eq 0 ] && rc=1
     why="$(after_failure "$m" "$rc" "$out" "$err")"; log_review "$m" "$m" - "$why" "$(fail_note "$m" "$rc" "$why" "$out" "$err")"

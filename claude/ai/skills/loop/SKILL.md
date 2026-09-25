@@ -1,13 +1,13 @@
 ---
 name: loop
-description: Use when asked to build a real feature end to end. Plans a spec, has an independent reviewer challenge it, implements on Sonnet with DeepSeek doing the rote parts, then independent QA. Not for anything smaller than a real feature.
+description: Use when asked to build a real feature end to end. Plans a spec, has an independent reviewer challenge it, implements on Sonnet with the cheap OpenCode lane doing the rote parts (more of them when a free model is on), then independent QA. Not for anything smaller than a real feature.
 disable-model-invocation: true
 ---
 Run the full loop for: $ARGUMENTS
 
 Conventions: specs live at the repo root as `SPEC-<slug>.md`. Never overwrite an existing spec — pick a new slug. The helper commands below are on PATH while the `ai` plugin is enabled. The first output line of every helper names who actually did the work (`WORKER:` / `REVIEWER:`); carry those names into the final report.
 
-Stage 1 — Plan (you, at the tier you're running). Write `SPEC-<slug>.md`: files to touch with exact paths, interfaces, edge cases, existing patterns to copy (name the file), and a "Done means" list where every item is verifiable (tests, build, observable behaviour). If a folder the change touches has a nested `AGENTS.md` of gotchas, read it and name in the spec which of its lines apply. For research first ("how does the existing auth middleware work"), delegate to the `grunt` agent rather than reading everything yourself.
+Stage 1 — Plan (you, at the tier you're running). Write `SPEC-<slug>.md`: files to touch with exact paths, interfaces, edge cases, existing patterns to copy (name the file), and a "Done means" list where every item is verifiable (tests, build, observable behaviour). If a folder the change touches has a nested `AGENTS.md` of gotchas, read it and name in the spec which of its lines apply. For research first ("how does the existing auth middleware work"), delegate to the `grunt` agent rather than reading everything yourself; when `grunt-run --free-status` exits 0 that research costs nothing, so prefer it for any survey longer than a few files.
 
 Stage 2 — Challenge the spec (independent reviewer). Run in Bash:
   codex-review spec SPEC-<slug>.md

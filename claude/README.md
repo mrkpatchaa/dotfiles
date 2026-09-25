@@ -1,5 +1,7 @@
 # claude/ — the `ai` plugin (skills, agents, fallback scripts) and shell aliases
 
+Diagrams of how it all fits together (aliases, /ai:loop, the review fallback chain, the commit hook, the cheap lane, limits): [ARCHITECTURE.md](ARCHITECTURE.md).
+
 Install once, in Claude Code:
 
     claude plugin marketplace add ~/devs/dotfiles/claude && claude plugin install ai@mrk
@@ -60,3 +62,22 @@ Every call appends one tab-separated line per lane attempt to `~/.local/state/ai
 ## Stale limits (0.5.2, 24 September 2026)
 
 A stored skip is only as good as its date. Limits get reset (OpenAI's saved reset was used the same day), credits get bought, and `codex.limited` would still say "back Monday" while every review went to the fallback. So `codex-review` no longer trusts a Codex mark, or a usage snapshot that would downgrade the review, once it is older than `CODEX_RECHECK_EVERY` (1800 s): it first sends one word ("Reply with exactly: OK") on the cheap tier at low effort, no tools, `-a never`, at most `CODEX_PROBE_TIMEOUT` (90 s). A refusal costs nothing and re-dates the mark from Codex's own message; an answer removes the mark, voids older snapshots (`cleared`) and leaves a fresh one behind, so the pre-flight and the weekly rule then work from the real figure. The probe is logged as lane `codex-probe` (`answered`, `limit` or `unknown`) in `reviews.log`, and `ai-limits` says when the next one is due; `ai-limits clear codex` skips the wait. `CODEX_RECHECK=0` restores the old behaviour. The first live probe (24 September, 19:51 UTC) was refused with exit 2: `codex exec` 0.155.1 has no `-a`/`--ask-for-approval` flag (the CLI reference says otherwise; the source, `codex-rs/exec/src/cli.rs`, does not), so the policy is passed as `-c approval_policy="never"` instead, on the reviews as well as the probe. A failed lane now keeps its full stderr in `~/.local/state/ai-loop/<lane>.stderr` and the log note quotes the error line rather than the last one — which is how the OpenCode fallback failure will be read.
+
+## Effort and tests (0.5.3, 24 September 2026)
+
+- **Launch effort is pinned per alias** with `--effort` (session only; beats a level saved earlier with `/effort` + Enter): `cc-opus` high (Opus 5.5's own default is medium), `cc-fable` high, `cc-sonnet` / `cc-sonnet-solo` high. `/effort` still changes it mid-session. `CLAUDE_CODE_EFFORT_LEVEL` is not used because it locks `/effort` for the session. Opus 5.5 ignores a top-level `effortLevel` in settings (docs: model-config).
+- **Climb effort before switching models**: `cc-opus` (high) → `/effort xhigh` when high got it wrong → only then `cc-fable`; `/effort medium` for rote stretches. A mid-session change keeps the cache from v2.1.280. `/effort ultracode` (xhigh + dynamic workflows) only on purpose.
+- **Subagents** inherit the session's effort unless their definition sets `effort`. `implementer` and `reviewer` now pin `effort: high`, so an xhigh session doesn't raise the Sonnet build (and a medium stretch doesn't lower it). `grunt` runs on Haiku, which has no effort setting. `/tasks` shows the level on a subagent's row.
+- **Codex cheap tier**: `CODEX_REVIEW_EFFORT_CHEAP=max` in aliases.zsh (Luna's best mode for downgraded loop reviews, which have 25 min); codex-review lowers it to high when `REVIEW_BUDGET` < 900 s (the commit hook's 540 s). The commit hook itself stays on Luna high.
+- **`/ai:test-audit [path]`**: report-first pruning of low-value tests (restating the code, copied fixtures, test-only seams, duplicates of a stronger boundary test), adapted from OpenClaw's test-audit skill. One folder per batch, deletion only on your yes. The managed ai-loop block in each repo's AGENTS.md gained a `Tests:` line (the authoring gate) so Codex and OpenCode lanes read it too.
+
+## Free models (0.6.0, 25 September 2026)
+
+OpenCode Zen regularly runs models for free (ids end in `-free`; list: opencode.ai/docs/zen, or `/models` in the OpenCode TUI). Put the ones you want in `OPENCODE_FREE_MODELS` (aliases.zsh, commented example) and:
+- `grunt-run` tries them before `GRUNT_MODELS`; its first line says `WORKER: <model> (free)`.
+- `codex-review` asks them after Codex and before the paid Go fallbacks (`REVIEW_FREE=0` keeps them out of reviews); the `REVIEWER:` line says `free`.
+- `grunt-run --free-status` exits 0 while one is usable in this repo. The `implementer`, the `grunt` description, `/ai:loop` and the `Lanes` line of each repo's AGENTS.md use that as the signal to delegate more than rote work: first drafts of well-specified code, tests, docs, long surveys. The main model still reviews and runs the gates, and secrets / auth / payments / migrations / deploy config still never go to the cheap lane.
+- A free model that errors (free period over, id retired) is skipped for 15 minutes, then retried; `ai-limits` shows it.
+- Data: most free models may use what they are sent for training (Space Bunny Free says zero retention; the NVIDIA trials say no confidential data). Opt a repo out with `git config ai-loop.freelane off`.
+- The agents no longer name DeepSeek: the cheap lane is whatever `GRUNT_MODELS` (and the free list) say.
+
