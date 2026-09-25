@@ -66,19 +66,19 @@ Everything outside Claude is reached through the scripts in `bin/`, never direct
 
 ## 2. Models and effort per launch alias
 
-| Alias | Main session | Subagents (forced) | Effort at launch | Use it for |
+| Alias | Main session | Subagents | Effort at launch | Use it for |
 |---|---|---|---|---|
-| `cc-opus` | Opus 5.5, 1M context | Sonnet | high | the daily driver |
-| `cc-fable` | Fable | Opus 5.5 | high | what Opus at xhigh got wrong |
-| `cc-sonnet` | Sonnet + Opus advisor | Haiku | high | short sessions, cheaper |
-| `cc-sonnet-solo` | Sonnet | Haiku | high | comparing `/usage` |
+| `cc-opus` | Opus 5.5, 1M context | per agent file (default Opus) | high | the daily driver |
+| `cc-fable` | Fable | per agent file (default Opus 5.5) | high | what Opus at xhigh got wrong |
+| `cc-sonnet` | Sonnet + Opus advisor | Sonnet (forced) | high | short sessions, cheaper |
+| `cc-sonnet-solo` | Sonnet | Sonnet (forced) | high | comparing `/usage` |
 
 `--effort` applies to that session only and wins over a level saved with `/effort`; `/effort` still changes it mid-session.
 
 | Agent | Model in its file | Effort | Runs where |
 |---|---|---|---|
-| `implementer` | sonnet (forced by the alias) | high (pinned) | its own git worktree |
-| `reviewer` | opus (forced by the alias) | high (pinned) | read-only |
+| `implementer` | opus (Sonnet under cc-sonnet, which forces) | medium (pinned) | its own git worktree |
+| `reviewer` | opus (Sonnet under cc-sonnet, which forces) | high (pinned) | read-only |
 | `grunt` | haiku | none (Haiku has no effort setting) | relays to `grunt-run` |
 
 ```mermaid
@@ -99,7 +99,7 @@ sequenceDiagram
   participant Main as Main agent
   participant Grunt as grunt → grunt-run
   participant Rev as codex-review
-  participant Impl as implementer (Sonnet, worktree)
+  participant Impl as implementer (Opus medium, worktree)
   participant Claude as reviewer agent (Opus)
 
   You->>Main: /ai:loop <feature>

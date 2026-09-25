@@ -67,7 +67,7 @@ A stored skip is only as good as its date. Limits get reset (OpenAI's saved rese
 
 - **Launch effort is pinned per alias** with `--effort` (session only; beats a level saved earlier with `/effort` + Enter): `cc-opus` high (Opus 5.5's own default is medium), `cc-fable` high, `cc-sonnet` / `cc-sonnet-solo` high. `/effort` still changes it mid-session. `CLAUDE_CODE_EFFORT_LEVEL` is not used because it locks `/effort` for the session. Opus 5.5 ignores a top-level `effortLevel` in settings (docs: model-config).
 - **Climb effort before switching models**: `cc-opus` (high) → `/effort xhigh` when high got it wrong → only then `cc-fable`; `/effort medium` for rote stretches. A mid-session change keeps the cache from v2.1.280. `/effort ultracode` (xhigh + dynamic workflows) only on purpose.
-- **Subagents** inherit the session's effort unless their definition sets `effort`. `implementer` and `reviewer` now pin `effort: high`, so an xhigh session doesn't raise the Sonnet build (and a medium stretch doesn't lower it). `grunt` runs on Haiku, which has no effort setting. `/tasks` shows the level on a subagent's row.
+- **Subagents** inherit the session's effort unless their definition sets `effort`. `implementer` and `reviewer` now pin their effort (0.7.0: implementer medium, reviewer high), so an xhigh session doesn't raise the build (and a medium stretch doesn't lower it). `grunt` runs on Haiku, which has no effort setting. `/tasks` shows the level on a subagent's row.
 - **Codex cheap tier**: `CODEX_REVIEW_EFFORT_CHEAP=max` in aliases.zsh (Luna's best mode for downgraded loop reviews, which have 25 min); codex-review lowers it to high when `REVIEW_BUDGET` < 900 s (the commit hook's 540 s). The commit hook itself stays on Luna high.
 - **`/ai:test-audit [path]`**: report-first pruning of low-value tests (restating the code, copied fixtures, test-only seams, duplicates of a stronger boundary test), adapted from OpenClaw's test-audit skill. One folder per batch, deletion only on your yes. The managed ai-loop block in each repo's AGENTS.md gained a `Tests:` line (the authoring gate) so Codex and OpenCode lanes read it too.
 
@@ -81,3 +81,11 @@ OpenCode Zen regularly runs models for free (ids end in `-free`; list: opencode.
 - Data: most free models may use what they are sent for training (Space Bunny Free says zero retention; the NVIDIA trials say no confidential data). Opt a repo out with `git config ai-loop.freelane off`.
 - The agents no longer name DeepSeek: the cheap lane is whatever `GRUNT_MODELS` (and the free list) say.
 
+## Opus builds (0.7.0, 26 September 2026)
+
+The snowlan run on Sonnet took many implementer ↔ Codex review rounds; a build that passes review in fewer rounds is faster and spends less Codex quota, even at Opus rates. So:
+- `implementer` is `model: opus`, `effort: medium` (Opus 5.5's own default). For a hard spec, set `effort: high` in the file; `/effort` in the main session does not reach a pinned agent.
+- `cc-opus` and `cc-fable` drop `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`. With it on, Claude Code ignores every agent's `model:` line, which is why the implementer ran on Sonnet under `cc-opus` and why `grunt`'s relay ran on the forced model. Now each agent file decides (implementer opus, reviewer opus, grunt haiku, built-in Explore its own), and `CLAUDE_CODE_SUBAGENT_MODEL=opus` only covers agents that name no model. Under an `opus[1m]` main, an `opus` subagent runs on the same 1M model (docs: sub-agents).
+- `cc-sonnet` / `cc-sonnet-solo` now force Sonnet subagents (were Haiku): a Sonnet main keeps a Sonnet build. Use them, or the free / OpenCode lane through `grunt`, for small updates and rote work. The implementer's `effort: medium` pin applies there too.
+- Subagent effort is set only by an agent's `effort:` line; there is no environment variable for subagents alone (`CLAUDE_CODE_EFFORT_LEVEL` overrides main and subagents together and locks `/effort`, so it stays unused). An agent without the line inherits the session's level.
+- Watch the Max window: an Opus build spends it faster than a Sonnet one. Compare `/usage` over the next two or three loops.

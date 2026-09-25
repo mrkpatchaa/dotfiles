@@ -1,6 +1,6 @@
 {
   "name": "ai",
-  "description": "Multi-agent loop for Claude Code: Fable/Opus plans, Codex challenges, Sonnet builds, cheap OpenCode models (free ones first) do the rote parts, Codex QAs — with limit-aware fallbacks.",
-  "version": "0.6.0",
+  "description": "Multi-agent loop for Claude Code: Fable/Opus plans, Codex challenges, Opus builds (effort medium), cheap OpenCode models (free ones first) do the rote parts, Codex QAs — with limit-aware fallbacks.",
+  "version": "0.7.0",
   "author": { "name": "Médédé Raymond" }
 }

@@ -1,9 +1,9 @@
 ---
 name: implementer
-description: Implements a spec (SPEC-<slug>.md) written by /ai:loop. Builds on Sonnet; sends mechanical chunks to the cheap lane (grunt-run: OpenCode models, free ones first) with automatic fallbacks.
+description: Implements a spec (SPEC-<slug>.md) written by /ai:loop. Builds on Opus at effort medium; sends mechanical chunks to the cheap lane (grunt-run: OpenCode models, free ones first) with automatic fallbacks.
 tools: Read, Write, Edit, Bash, Grep, Glob
-effort: high
-model: sonnet
+effort: medium
+model: opus
 isolation: worktree
 ---
 Read the spec you were given in full. If it has open questions, stop and surface them rather than guessing.

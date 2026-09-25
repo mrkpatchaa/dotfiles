@@ -20,16 +20,24 @@ export CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false
 # (@SKatalystAI's rule of thumb: Opus 5.5 medium ≈ Fable 5.1 high, Opus 5.5 high ≈ Fable 5.1 max.) Since Claude Code v2.1.280 a
 # mid-session /effort change keeps the prompt cache (Anthropic's Lydia Hallie), so dropping to medium for a rote stretch and back is free.
 # /effort ultracode = xhigh + dynamic workflows: many agents, large spend — only when you mean it.
-# Subagents inherit the session's effort unless their definition says otherwise; the ai plugin's implementer and reviewer pin effort: high,
-# so an xhigh main session no longer drags a Sonnet build up with it (or a medium one down).
+# Subagents inherit the session's effort unless their definition says otherwise. The ai plugin pins them: implementer opus/medium,
+# reviewer opus/high, grunt haiku (a relay to the OpenCode lane). So an xhigh main session no longer drags the build up with it.
+#
+# Subagent model (0.7.0, 26 Sep 2026): Sonnet builds took too many implementer ↔ Codex review rounds (snowlan), so the implementer
+# is Opus 5.5 at medium. cc-opus and cc-fable no longer set CLAUDE_CODE_SUBAGENT_MODEL_FORCE: with it on, Claude Code ignores every
+# agent's `model:` line (grunt's relay ran on the forced model too). Without it the agent files decide; CLAUDE_CODE_SUBAGENT_MODEL=opus
+# only fills in for agents that name no model. Built-in Explore keeps its own (Haiku). Rote chunks and small updates: the free /
+# OpenCode lane through grunt, or a cc-sonnet session, whose subagents are all forced to Sonnet (was Haiku: not worth the quality loss).
+# Subagent effort: only an agent's `effort:` line sets it (no env var for subagents alone; CLAUDE_CODE_EFFORT_LEVEL would override
+# main and subagents together and lock /effort). Agents without one inherit the session's level.
 
-alias cc-fable="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 CLAUDE_CODE_SUBAGENT_MODEL=opus claude --model fable --effort high"      # no advisor: a Fable main only accepts a Fable advisor
-alias cc-opus="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 CLAUDE_CODE_SUBAGENT_MODEL=sonnet claude --model 'opus[1m]' --effort high"  # 1M context (included on Max); quoted because zsh reads [1m] as a glob. --advisor opus by hand for high-stakes work only
+alias cc-fable="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL=opus claude --model fable --effort high"      # no advisor: a Fable main only accepts a Fable advisor
+alias cc-opus="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL=opus claude --model 'opus[1m]' --effort high"  # 1M context (included on Max); quoted because zsh reads [1m] as a glob. --advisor opus by hand for high-stakes work only
 # Sonnet drives, Opus is consulted at decision points (before an approach, on a recurring error, before "done").
 # Counts toward the Max window; each consult re-reads the whole transcript uncached, so keep these sessions short.
 # Mid-session: /advisor off · /advisor opus. Stays off if DISABLE_TELEMETRY (or anything blocking feature flags) is set.
-alias cc-sonnet="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 CLAUDE_CODE_SUBAGENT_MODEL=haiku claude --model sonnet --effort high --advisor opus"
-alias cc-sonnet-solo="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 CLAUDE_CODE_SUBAGENT_MODEL=haiku claude --model sonnet --effort high"   # the old cc-sonnet, for comparing /usage
+alias cc-sonnet="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 CLAUDE_CODE_SUBAGENT_MODEL=sonnet claude --model sonnet --effort high --advisor opus"
+alias cc-sonnet-solo="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 CLAUDE_CODE_SUBAGENT_MODEL=sonnet claude --model sonnet --effort high"   # the old cc-sonnet, for comparing /usage
 
 # Codex review tiers (read by codex-review, so also by the commit hook, /ai:loop and /ai:ship). Plus quota is the scarce budget.
 # Ids from OpenAI's model list (22 Sep 2026: GPT-6 Sol and Luna on Plus, half the price of the 5.6 pair). Needs a Codex CLI that lists them
