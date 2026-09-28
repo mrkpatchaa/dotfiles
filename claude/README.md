@@ -9,117 +9,184 @@ Install once, in Claude Code:
 (or inside Claude Code: `/plugin marketplace add <dotfiles clone>/claude` then `/plugin install ai@mrk`)
 
 The marketplace is a local directory, so the plugin loads in place: edit anything under `ai/` and run `/reload-plugins`.
-Skills are namespaced: `/ai:loop`, `/ai:ship`. Agents: `implementer`, `verifier`, `grunt`, `reviewer`. `ai/bin/` is on the Bash tool's PATH while the plugin is enabled.
 
-Shell: `.zshrc` sources `aliases.zsh` (cc-fable / cc-opus / cc-sonnet, and `ai/bin` on your PATH). Since 0.2.0: `cc-sonnet` runs with an Opus advisor (`cc-sonnet-solo` is the old one), every alias caps subagents at 2 concurrent / depth 1, and `CODEX_REVIEW_MODEL[_RISKY]` pick the Codex tier per review.
+## What's in it
 
-Per-project pieces (hook + settings + AGENTS.md block) live in each repo's `.claude/settings.json` and `AGENTS.md`.
-State for limit tracking: `~/.local/state/ai-loop/` (`ai-limits` shows it, `ai-limits clear` resets it).
+| Piece | What it does |
+| --- | --- |
+| `/ai:loop` | Spec → independent spec review → build → verify → independent QA, with gates where you say yes. |
+| `/ai:ship` | Wrap up a branch: independent review of the diff, fix what holds up, commit. |
+| `/ai:preship [break\|all] [target]` | Pre-launch checks; `break` sends read-only breakers after the app. |
+| `/ai:test-audit [path]` | Report-first pruning of low-value tests. |
+| `implementer` | Builds from the spec. Opus, effort medium, own worktree. |
+| `verifier` | Runs the feature and adds edge-case tests. Opus, effort high. |
+| `reviewer` | Last-resort read-only review when Codex and OpenCode are both unavailable. Opus, effort high. |
+| `breaker` | Tries to break the running app. Opus, effort high, no Write/Edit. |
+| `grunt` | Relays rote work to the cheap lane. Haiku. |
+| `ai/bin/grunt-run` | Runs a brief on the cheap OpenCode lane (free models first). |
+| `ai/bin/codex-review` | Codex review with limit-aware fallbacks. |
+| `ai/bin/jev-triage` | Optional commit triage through TypeSafe's Jev. |
+| `ai/bin/ai-limits` | Which lanes are limited, until when, and the review log. |
+| `ai/hook-scripts/review-before-commit.sh` | Reviews a `git commit` Claude Code is about to run. |
 
-## Limits: fast detection and reset times (0.4.0)
+`ai/bin/` is on the Bash tool's PATH while the plugin is enabled, and on your shell PATH through `aliases.zsh`. Per-project pieces (hook + settings + the managed `AGENTS.md` block) live in each repo's `.claude/settings.json` and `AGENTS.md`. State: `~/.local/state/ai-loop/` (`ai-limits` shows it, `ai-limits clear` resets it).
 
-Why: `opencode run` retries a limited provider forever and prints nothing while it does (anomalyco/opencode #40330, #21960), and the scripts used to look for a limit only after the CLI had exited. One exhausted Go window therefore meant an open-ended wait.
-Now every lane runs under a watchdog (`run_lane` in `ai/bin/_common.sh`): stderr is read every 2 s while the CLI runs and the lane is killed the moment it reports a hard limit; a lane with no output at all is killed after `AI_STALL_TIMEOUT` (300 s; Codex 600 s; `grunt-run` 600 s) and any lane after `AI_LANE_TIMEOUT` (1200 s; `grunt-run` 2400 s); `codex-review` as a whole ends within `REVIEW_BUDGET` (1500 s; 540 s from the commit hook, under Claude Code's 600 s hook timeout). A heartbeat line goes to stderr every minute. OpenCode runs with `--print-logs` so the provider's error reaches stderr; Codex runs with `--json -o` so errors are separate events and a diff that quotes "usage limit" cannot trip the detector (falls back to plain output if the installed codex refuses the flags; `CODEX_REVIEW_JSON=0` forces that).
-Reset times: the lane's own words are parsed (`_limits.py reset`): Codex "try again at Sep 22nd, 2026 9:51 AM" / "in 2 hours 5 minutes", OpenCode Go "Resets in 2h 13m", `resets_at`, `retry-after`. The lane is skipped until that time instead of the fixed 30 minutes, which remains only for a limit that names no time. A lane killed for silence or time is skipped for 15 minutes. Two Go models at their limit in one run mark the whole `opencode-go` provider (anomalyco/opencode #49014). Before spending a Codex call, `codex-review` reads the usage windows Codex writes to `~/.codex/sessions/**/rollout-*.jsonl`; a window at 100 % with a reset in the future skips Codex without a request (`CODEX_PREFLIGHT=0` disables).
-`ai-limits` lists every lane with "back Tue 09:51 (in 14h)", how that is known, the lane's own sentence, and Codex's two windows with their percentages. `ai-limits clear [lane]` after buying credits; it also makes the pre-flight ignore older usage snapshots. OpenCode Go has no usage API (anomalyco/opencode #31084), so its reset time is known only after a refusal.
-Tested against mock `codex` and `opencode` binaries (limit while running, limit at exit, silence, time-out, flags refused, diff quoting limit words, usage snapshot), not against the live services: the exact wording of a Go limit in `--print-logs` output and the `rate_limits` layout in rollout files are taken from public issues. After the next real limit, check `ai-limits`: "guessed" next to a lane means its message was not parsed — send me the "said:" line.
+## Aliases, models and effort
 
-## Jev triage (0.2.0, optional)
+`.zshrc` sources `aliases.zsh`. Every alias caps subagents at 2 concurrent and depth 1, and pins its launch effort with `--effort` (session only; beats a level saved with `/effort` + Enter; `/effort` still changes it mid-session).
 
-`ai/bin/jev-triage` reads a diff and prints SKIP / REVIEW / ADVERSARIAL from five yes/no questions to TypeSafe's Jev plus local path and credential checks. It fails open to REVIEW, drops lockfiles, env files and generated types, and redacts anything credential-shaped before sending.
-The commit hook uses it per clone: `git config ai-loop.jevtriage shadow` logs its verdict next to the real review and changes nothing; `on` lets SKIP skip the review and hands ADVERSARIAL's focus to the reviewer. Off by default, because the diff goes to a third party.
-Key: `~/.config/typesafe/api-key` (chmod 600) or `$TYPESAFE_API_KEY`. Log: `~/.local/state/ai-loop/jev-triage.log`; `ai-limits triage` summarises it. Switch a repo to `on` only after the "SKIP but not SHIP" list has stayed empty for a couple of weeks.
-The Jev call itself was tested against a mock of the documented API, not the live service.
-Since 0.3.0: Jev's scores move a little between identical calls, so a SKIP must hold on two independent calls (`JEV_CONFIRM=0` turns that off); a disagreement or a failed second call means REVIEW. Risk scores within 0.10 of the threshold are logged as `near`. `ai-limits triage` counts those coin flips and ends with a decision line: stay in shadow, keep going, or ready (14 days and 30 compared reviews with no bad SKIP).
+| Alias | Main | Subagents |
+| --- | --- | --- |
+| `cc-opus` | `opus[1m]` (Opus 5.5, 1M context), high. The daily driver. | Each agent file decides (`CLAUDE_CODE_SUBAGENT_MODEL=opus` only covers agents that name no model). |
+| `cc-fable` | Fable, high. For what Opus gets wrong. | Same as cc-opus. |
+| `cc-sonnet` | Sonnet, high, with `--advisor opus`. | Forced to Sonnet. |
+| `cc-sonnet-solo` | Sonnet, high, no advisor. | Forced to Sonnet. |
 
-## Gotchas files (0.3.0)
+- **Climb effort before switching models:** cc-opus (high) → `/effort xhigh` when high got it wrong → only then cc-fable. `/effort medium` for rote stretches, `/effort ultracode` (xhigh + dynamic workflows) only on purpose. From Claude Code v2.1.280 a mid-session effort change keeps the prompt cache, so `/effort high` for the plan and medium for the build costs nothing.
+- **Opus 5.5** starts at effort medium and ignores a top-level `effortLevel` in settings; use `--effort`, `/effort` or `modelSettings` per model.
+- **Subagent effort comes only from an agent's `effort:` line.** There is no environment variable for subagents alone: `CLAUDE_CODE_EFFORT_LEVEL` overrides main and subagents together and locks `/effort`, so it stays unused. An agent without the line inherits the session's level; `/effort` in the main session doesn't reach a pinned agent. `/tasks` shows the level on a subagent's row.
+- **No `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` on the Opus/Fable aliases.** With it on, Claude Code ignores every agent's `model:` line (that's how the implementer once ran on Sonnet under cc-opus). The Sonnet aliases keep it on purpose: a Sonnet main keeps a Sonnet build, never Haiku. Under an `opus[1m]` main, an `opus` subagent runs on the same 1M model.
+- **The build runs at medium** (Opus 5.5's default); for a hard spec set `effort: high` in `implementer.md`. An Opus build spends the Max window faster than a Sonnet one: watch `/usage`.
+- `aliases.zsh` sets `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` (one background request per turn that re-reads the context; delete the line if you use Tab to accept suggestions).
 
-Folders where mistakes recur carry a nested `AGENTS.md` of facts (what broke, the check that catches it, the command that proves it), plus a one-line `CLAUDE.md` containing `@AGENTS.md`. Codex reads the nested `AGENTS.md` directly. Claude Code loads the nested `CLAUDE.md` when it reads a file in that folder; it ignores a nested `AGENTS.md` whenever the repo has a root `CLAUDE.md`, which all of yours do. `/ai:loop` reads them while planning and, with `/ai:ship`, proposes a new line when a review finds a repeatable mistake. First set: assigame-next `supabase/`, `supabase/functions/`, `mobile/`.
+## The loop (`/ai:loop`)
 
-Cheap lane: `grunt-run` appends a closing quality-pass instruction for the build agent (`GRUNT_QA_PASS=0` turns it off). Keep that kind of line out of prompts for frontier models.
+- **Stage 1, plan.** Open questions come first, in one message, numbered, each with a recommended answer (reply "ok" or change one by number). It asks only what you alone can decide: facts are looked up in the code or through `grunt`. A second round happens only when answers open new questions, and it stops when nothing the build depends on is assumed. This is the `/grill-me` pattern (Matt Pocock); no need to install mattpocock/skills for the loop. For planning outside the loop, install only `grill-me` and `grilling` (`npx skills@latest add mattpocock/skills`, pick those two): the plugin's model-invoked `tdd`, `code-review` and `diagnosing-bugs` would compete with the loop's stages. Then `SPEC-<slug>.md` at the repo root (never overwrite an existing spec).
+- **Stage 2, challenge the spec** with `codex-review spec`. When you turn down an approach at a gate, or a reviewer finding is dropped because the codebase deliberately does otherwise, the loop proposes one line for `## Patterns we do not use` in the root `AGENTS.md` (the tempting choice, the alternative, the reason), added only on your yes.
+- **Stage 3, build.** `implementer` hands precisely specified chunks to the cheap lane and writes the substantive logic itself. For a bug fix it runs the reproducer or writes the failing test before editing. It routes by trust as well as difficulty: chunks touching secrets, env files, auth, payments, migrations or deploy config never go to the cheap lane.
+- **Stage 3b, verify.** `verifier` runs the feature, reproduces a fixed bug against the base branch, adds edge-case tests under the repo's `Tests:` rule (randomised comparison against a reference where one exists), never edits production code, and reports `VERIFY: PASS|FAIL`. It runs for input handling, money/state, concurrency/time, auth/data/migrations and bug fixes, and is skipped for UI, copy, config and plumbing. A FAIL goes back to the implementer for one round before the Codex diff review, which then sees the new tests. The idea comes from Thariq's effort study (claude.dev/blog/spending-your-effort): higher effort mostly buys verification and edge-case testing, not a better approach. Cost: one extra Opus-high subagent per qualifying loop; if `/usage` climbs, narrow Stage 3b to bug fixes and auth/data first.
+- **Stage 4, QA** by `codex-review`, started in the background and left alone until it exits: no polling, since every check was a main-model turn. The 25-minute self-stop is unchanged; after 26 minutes with no report the skill reads the output once and kills a run still going. Calling `codex-review` again later is fine.
+- **Report order:** what needs you first; files; verdicts, reviewers and the verify result; what was run versus only read and what couldn't be checked; cheap-lane chunks; one merge risk with the check that would settle it. The first output line of every helper (`WORKER:` / `REVIEWER:`) names who did the work, and the report carries those names.
 
-## Models after 22 September 2026 (0.5.0)
+## Codex reviews: tiers, weekly budget, stale limits
 
-Opus 5.5 and GPT-6 Sol/Luna shipped the same day. `opus` now resolves to Opus 5.5 in Claude Code (the Max default), which starts at effort medium and ignores a top-level `effortLevel`: use `/effort high` for a hard plan, or `modelSettings` per model. `cc-opus` is the suggested daily driver; `cc-fable` for what it gets wrong. `reviewer` (opus) picks up 5.5 without a change; `implementer` stays on `sonnet` until Sonnet 5.5 lands, which the alias will also pick up.
-Codex tiers are now set in `aliases.zsh`: `gpt-6-sol` at medium for spec reviews and QA, the same model at `xhigh` when a focus marks the diff as risky (`CODEX_REVIEW_EFFORT_RISKY`, new), and `gpt-6-luna` at high for the pre-commit hook (`CODEX_REVIEW_MODEL_COMMIT` / `CODEX_REVIEW_EFFORT_COMMIT`, new, read only by the hook). The ids come from OpenAI's model list; update the Codex CLI so it knows them. Unset the two `_COMMIT` variables to review commits on Sol again. Note for `ai-limits triage`: the "real review" column is now Luna for commits, so compare shadow rows before and after this date separately.
-`/ai:loop` and `/ai:ship` no longer poll a running `codex-review`: every check was a main-model turn. Claude Code reports when a background command exits; the 25-minute self-stop is unchanged, and after 26 minutes with no report the skill reads the output once and kills a run still going.
-`/ai:loop` also proposes a line for a `## Patterns we do not use` section of the root `AGENTS.md` whenever you turn down an approach at a gate (the tempting choice, the alternative, the reason; added only on your yes). Effort changes mid-session keep the prompt cache since Claude Code v2.1.280, so `/effort high` for the plan and back to medium for the build is free.
-`implementer` routes by trust as well as difficulty: chunks touching secrets, env files, auth, payments, migrations or deploy config never go to the cheap lane.
-`aliases.zsh` also sets `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` (one background request per turn that re-reads the context; delete the line if you use Tab to accept suggestions).
+Tiers, set in `aliases.zsh` (update the Codex CLI so it knows the ids):
 
-## Prompt audit (24 September 2026)
+| Variable | Value | Used for |
+| --- | --- | --- |
+| `CODEX_REVIEW_MODEL` / `_EFFORT` | `gpt-6-sol` / medium | Spec reviews and loop/ship QA |
+| `CODEX_REVIEW_MODEL_RISKY` / `_EFFORT_RISKY` | `gpt-6-sol` / xhigh | A focus marks the diff as risky (auth, payments, schema…) |
+| `CODEX_REVIEW_MODEL_COMMIT` / `_EFFORT_COMMIT` | `gpt-6-luna` / high | The pre-commit hook only. Unset both to review commits on Sol. |
+| `CODEX_REVIEW_MODEL_CHEAP` / `_EFFORT_CHEAP` | `gpt-6-luna` / max | The weekly-budget downgrade |
 
-Anthropic's `claude-api` skill carries a read-only audit of prompt files against current-model guidance: `/plugin marketplace add anthropics/skills`, then `/plugin install claude-api@anthropic-agent-skills`, then `/claude-api prompt-audit` from `~/devs/dotfiles/claude/ai` (skills, agents and the prompts inside `bin/`) and once from a repo root for its `AGENTS.md` tree. It prints findings (`file:line`, quoted evidence, pattern, confidence) and a proposed diff for the High and Medium ones; apply the hunks by hand. What to keep if it flags them: the waiting rule in `loop` and `ship` (its minutes are the scripts' own timeouts), the `VERDICT:` line pins (the hook and the skills parse them; the verdict comes first in a review, right after the `REVIEWER:` line), and the `never` lines that state their reason (data loss, a third-party lane). Re-run it at each model release: `implementer` (`sonnet`) and `grunt` (`haiku`) will move to 5.5 through their aliases, and the rules that suit Opus 5.5 suit them. A grep pass on 24 September over the plugin, the `bin/` prompts and the nine `AGENTS.md` files found none of the six anti-patterns Anthropic lists (verification rituals, emphasis boosters, mandatory procedures, stale examples, contradictory rules, dated config). The audit itself then found one contradictory rule it had missed: `reviewer` told the model to put both `VERDICT:` and `REVIEWER:` on the first line. `reviewer` now uses `codex-review`'s shape, and `loop` no longer names the implementer's models.
+- **Weekly budget.** The binding Codex limit on Plus is the 7-day window. In the week of 21 September about 90 reviews, mostly Astra and Sol at medium, used all of it in three days. Rule of thumb from that week (tokens mostly cached): one Astra medium review ≈ 2.5 % of the week, one Sol medium ≈ 1.5 %, one Luna high ≈ 0 %. So before each Codex call `codex-review` reads Codex's last usage snapshot (free, from `~/.codex/sessions`). At `CODEX_WEEKLY_DOWNGRADE_AT` % or more (default 80; 0 turns it off), the review runs on the cheap tier and the `REVIEWER:` line says `downgraded: 7-day window at N%`. The cheap effort drops from max to high when `REVIEW_BUDGET` is under 900 s (the commit hook's 540 s). A snapshot whose window has reset since is ignored. Keep interactive Codex, and the Codex plugin inside Claude Code, on Sol or Luna: one Astra session used 12 % of a week.
+- **Commit hook.** It keeps the `_COMMIT` model when jev-triage hands it a focus; the effort still rises to `CODEX_REVIEW_EFFORT_RISKY`. `CODEX_REVIEW_MODEL_COMMIT_RISKY` overrides that.
+- **No approval prompts.** Reviews run read-only with `-c approval_policy="never"`, so there's nothing to approve and no `codex-auto-review` guardian sub-sessions. `codex exec` has no `-a`/`--ask-for-approval` flag, whatever the CLI reference says; the source (`codex-rs/exec/src/cli.rs`) doesn't have it.
+- **Stale limits.** A stored skip is only as good as its date: limits get reset and credits get bought. Once a Codex mark, or a snapshot that would downgrade the review, is older than `CODEX_RECHECK_EVERY` (1800 s), `codex-review` first sends one word ("Reply with exactly: OK") on the cheap tier at low effort, with no tools, capped at `CODEX_PROBE_TIMEOUT` (90 s). A refusal costs nothing and re-dates the mark from Codex's own message. An answer removes the mark, voids older snapshots (`cleared`) and leaves a fresh one, so the pre-flight and the weekly rule work from the real figure. It's logged as lane `codex-probe` (`answered`, `limit` or `unknown`), and `ai-limits` says when the next one is due. `ai-limits clear codex` skips the wait; `CODEX_RECHECK=0` turns the probe off.
+- **Review log.** Every call appends one tab-separated line per lane attempt to `~/.local/state/ai-loop/reviews.log`: date, repo, mode, lane, model, verdict, outcome (`ok`, `skipped`, `limit`, `stalled`, `error`, `none`), seconds, and a note. The note holds the weekly % before → after, the reset time and the lane's own words, or the error line. `ai-limits log [N]` prints the last N (12), and `ai-limits` says when the week is past the threshold. A failed lane keeps its full stderr in `~/.local/state/ai-loop/<lane>.stderr`.
 
-## Weekly budget (0.5.1, 24 September 2026)
+## Limits and fallbacks
 
-What the session files showed for 21–24 September: about 90 `codex exec` reviews in three days (commit hook and /ai:loop), most of them on gpt-6-astra at medium (the config.toml default while the `CODEX_REVIEW_*` exports were still commented out) and gpt-5.6-sol, took the ChatGPT Plus 7-day window from 0 % (Monday 00:11 UTC) to 100 % (Thursday 00:03 UTC). Codex then refused every model until Monday 28 September 00:11 UTC, `codex-review` recorded that in `codex.limited`, and every review after that went to the OpenCode fallback (which failed within seconds — see `ai-limits log` once it has rows) or to the Claude `reviewer` agent. The 14 Luna commit reviews on Wednesday did not move the counter. Two ADVERSARIAL commit reviews ran on Astra at xhigh; one was killed by the hook's 400 s lane timeout after 399 s — 7 % of the week for no review. Each `codex exec` also spawned a `codex-auto-review` guardian sub-session (Codex's approval reviewer under the default `on-request` policy): 23 of them, 1.4 M tokens. Rule of thumb from that week, tokens mostly cached: one Astra medium review of a real diff ≈ 2.5 % of the week, one Sol medium ≈ 1.5 %, one Luna high ≈ 0 %; a Plus week is about 40 Astra reviews, 70 Sol reviews, or hundreds on Luna.
+- **Review chain.** Codex → free OpenCode models → the paid Go models in `REVIEW_FALLBACK_MODELS` → exit 75, which tells `/ai:loop` and `/ai:ship` to use the Claude `reviewer` agent. On 75 the commit hook lets the commit through unreviewed, by design; only an explicit `VERDICT: BLOCK` stops a commit.
+- **Watchdog.** `opencode run` retries a limited provider forever and prints nothing while it does (anomalyco/opencode #40330, #21960), so every lane runs under `run_lane` (`ai/bin/_common.sh`):
+  - stderr is read every 2 s, and the lane is killed the moment it reports a hard limit;
+  - a silent lane is killed after `AI_STALL_TIMEOUT` (300 s; Codex 600 s; `grunt-run` 600 s);
+  - any lane is killed after `AI_LANE_TIMEOUT` (1200 s; `grunt-run` 2400 s);
+  - `codex-review` as a whole ends within `REVIEW_BUDGET` (1500 s; 540 s from the commit hook, under Claude Code's 600 s hook timeout);
+  - a heartbeat line goes to stderr every minute.
 
-`codex-review` now runs `codex exec -a never` (read-only sandbox, nothing to approve, no guardian sessions). Before each Codex call it reads Codex's last usage snapshot (free, from `~/.codex/sessions`): at `CODEX_WEEKLY_DOWNGRADE_AT` % of the 7-day window or more (default 80; 0 turns it off) the review runs on `CODEX_REVIEW_MODEL_CHEAP` (`gpt-6-luna`) at `CODEX_REVIEW_EFFORT_CHEAP` (`high`), and the `REVIEWER:` line says `downgraded: 7-day window at N%` — carry that into the loop's report. A snapshot whose window has reset since is ignored, and `ai-limits clear` still makes older snapshots invisible. The commit hook keeps the `_COMMIT` model when jev-triage hands it a focus (the effort still rises to `CODEX_REVIEW_EFFORT_RISKY`); `CODEX_REVIEW_MODEL_COMMIT_RISKY` overrides that, and Sol/Astra at xhigh remains the risky tier for /ai:loop and /ai:ship.
+  OpenCode runs with `--print-logs` so the provider's error reaches stderr. Codex runs with `--json -o` so errors are separate events and a diff that quotes "usage limit" can't trip the detector; if the installed codex refuses the flags it falls back to plain output (`CODEX_REVIEW_JSON=0` forces that).
+- **Reset times.** The lane's own words are parsed (`_limits.py reset`): Codex's "try again at Sep 22nd, 2026 9:51 AM" or "in 2 hours 5 minutes", OpenCode Go's "Resets in 2h 13m", `resets_at`, `retry-after`. The lane is skipped until that time. The fixed 30 minutes remains only for a limit that names no time. A lane killed for silence or time is skipped for 15 minutes. Two Go models at their limit in one run mark the whole `opencode-go` provider (anomalyco/opencode #49014).
+- **Codex pre-flight.** A usage window at 100 % with a reset in the future skips Codex without sending a request (`CODEX_PREFLIGHT=0` disables).
+- **`ai-limits`** lists every lane with "back Tue 09:51 (in 14h)", how that's known, and the lane's own sentence, plus Codex's two windows with their percentages. Run `ai-limits clear [lane]` after buying credits; it also makes the pre-flight ignore older snapshots. OpenCode Go has no usage API (anomalyco/opencode #31084), so its reset time is only known after a refusal.
+- **Testing.** Everything was tested against mock `codex` and `opencode` binaries in a Linux sandbox (bash 5), not on macOS bash 3.2 and not against the live services. If `ai-limits` shows "guessed" next to a lane after a real limit, its message wasn't parsed: extend `_limits.py` with the "said:" line.
 
-Every call appends one tab-separated line per lane attempt to `~/.local/state/ai-loop/reviews.log`: date, repo, mode, lane, model, verdict, outcome (`ok`, `skipped`, `limit`, `stalled`, `error`, `none`), seconds, and a note — the weekly % before → after, the reset time and the lane's own words, or the last useful stderr line. `ai-limits log [N]` prints the last N (12); `ai-limits` also says when the week is past the threshold. Tested against mock codex/opencode binaries in a Linux sandbox (38 checks, bash 5); not run on macOS bash 3.2 and not against the live CLIs.
+## The cheap lane and free models
 
-## Stale limits (0.5.2, 24 September 2026)
+- **Order.** `grunt-run` tries `OPENCODE_FREE_MODELS` first, then `GRUNT_MODELS`, and its first line says which one worked (`WORKER: <model> (free)`). It appends a closing quality-pass instruction for the build agent (`GRUNT_QA_PASS=0` turns it off). Keep that kind of line out of prompts for frontier models.
+- **Free models.** OpenCode Zen regularly runs models for free: ids end in `-free`, listed at opencode.ai/docs/zen or under `/models` in the OpenCode TUI. Put the ones you want in `OPENCODE_FREE_MODELS` (commented example in `aliases.zsh`, next to a note on NVIDIA's free endpoints, which are for dev and eval only).
+  - `codex-review` asks them after Codex and before the paid Go fallbacks, and the `REVIEWER:` line says `free`. `REVIEW_FREE=0` keeps them out of reviews.
+  - A free model that errors (free period over, id retired) is skipped for 15 minutes, then retried; `ai-limits` shows it.
+- **Wider delegation.** `grunt-run --free-status` exits 0 while a free model is usable in this repo. The `implementer`, the `grunt` description, `/ai:loop` and each repo's `Lanes` line use that as the signal to delegate more than rote work: first drafts of well-specified code, tests, docs, long surveys. The main model still reviews and runs the gates, and the trust rule above still applies.
+- **Data.** Most free models may use what they're sent for training (Space Bunny Free says zero retention; the NVIDIA trials say no confidential data). Opt a repo out with `git config ai-loop.freelane off`.
 
-A stored skip is only as good as its date. Limits get reset (OpenAI's saved reset was used the same day), credits get bought, and `codex.limited` would still say "back Monday" while every review went to the fallback. So `codex-review` no longer trusts a Codex mark, or a usage snapshot that would downgrade the review, once it is older than `CODEX_RECHECK_EVERY` (1800 s): it first sends one word ("Reply with exactly: OK") on the cheap tier at low effort, no tools, `-a never`, at most `CODEX_PROBE_TIMEOUT` (90 s). A refusal costs nothing and re-dates the mark from Codex's own message; an answer removes the mark, voids older snapshots (`cleared`) and leaves a fresh one behind, so the pre-flight and the weekly rule then work from the real figure. The probe is logged as lane `codex-probe` (`answered`, `limit` or `unknown`) in `reviews.log`, and `ai-limits` says when the next one is due; `ai-limits clear codex` skips the wait. `CODEX_RECHECK=0` restores the old behaviour. The first live probe (24 September, 19:51 UTC) was refused with exit 2: `codex exec` 0.155.1 has no `-a`/`--ask-for-approval` flag (the CLI reference says otherwise; the source, `codex-rs/exec/src/cli.rs`, does not), so the policy is passed as `-c approval_policy="never"` instead, on the reviews as well as the probe. A failed lane now keeps its full stderr in `~/.local/state/ai-loop/<lane>.stderr` and the log note quotes the error line rather than the last one — which is how the OpenCode fallback failure will be read.
+## Jev triage (optional)
 
-## Effort and tests (0.5.3, 24 September 2026)
+- **What it does.** `ai/bin/jev-triage` reads a diff and prints SKIP / REVIEW / ADVERSARIAL from five yes/no questions to TypeSafe's Jev, plus local path and credential checks. It fails open to REVIEW, drops lockfiles, env files and generated types, and redacts anything credential-shaped before sending.
+- **Modes.** The commit hook uses it per clone:
+  - `git config ai-loop.jevtriage shadow` logs its verdict next to the real review and changes nothing.
+  - `on` lets SKIP skip the review and hands ADVERSARIAL's focus to the reviewer.
+  - It's off by default, because the diff goes to a third party.
+- **Setup.** Key: `~/.config/typesafe/api-key` (chmod 600) or `$TYPESAFE_API_KEY`. Log: `~/.local/state/ai-loop/jev-triage.log`.
+- **Two calls for a SKIP.** Jev's scores move between identical calls, so a SKIP must hold on two independent calls (`JEV_CONFIRM=0` turns that off); a disagreement or a failed second call means REVIEW. Risk scores within 0.10 of the threshold are logged as `near`.
+- **Deciding.** `ai-limits triage` counts those coin flips and ends with a decision: stay in shadow, keep going, or ready (14 days and 30 compared reviews with no bad SKIP). Commit reviews moved to Luna on 22 September 2026, so compare shadow rows from before and after that date separately.
+- **Testing.** The Jev call was tested against a mock of the documented API, not the live service.
 
-- **Launch effort is pinned per alias** with `--effort` (session only; beats a level saved earlier with `/effort` + Enter): `cc-opus` high (Opus 5.5's own default is medium), `cc-fable` high, `cc-sonnet` / `cc-sonnet-solo` high. `/effort` still changes it mid-session. `CLAUDE_CODE_EFFORT_LEVEL` is not used because it locks `/effort` for the session. Opus 5.5 ignores a top-level `effortLevel` in settings (docs: model-config).
-- **Climb effort before switching models**: `cc-opus` (high) → `/effort xhigh` when high got it wrong → only then `cc-fable`; `/effort medium` for rote stretches. A mid-session change keeps the cache from v2.1.280. `/effort ultracode` (xhigh + dynamic workflows) only on purpose.
-- **Subagents** inherit the session's effort unless their definition sets `effort`. `implementer` and `reviewer` now pin their effort (0.7.0: implementer medium, reviewer high), so an xhigh session doesn't raise the build (and a medium stretch doesn't lower it). `grunt` runs on Haiku, which has no effort setting. `/tasks` shows the level on a subagent's row.
-- **Codex cheap tier**: `CODEX_REVIEW_EFFORT_CHEAP=max` in aliases.zsh (Luna's best mode for downgraded loop reviews, which have 25 min); codex-review lowers it to high when `REVIEW_BUDGET` < 900 s (the commit hook's 540 s). The commit hook itself stays on Luna high.
-- **`/ai:test-audit [path]`**: report-first pruning of low-value tests (restating the code, copied fixtures, test-only seams, duplicates of a stronger boundary test), adapted from OpenClaw's test-audit skill. One folder per batch, deletion only on your yes. The managed ai-loop block in each repo's AGENTS.md gained a `Tests:` line (the authoring gate) so Codex and OpenCode lanes read it too.
+## Instruction files
 
-## Free models (0.6.0, 25 September 2026)
+- **One `AGENTS.md` per repo**, read by Claude Code through a one-line `CLAUDE.md` (`@AGENTS.md`), and by Codex and OpenCode directly. The `BEGIN:ai-loop` block is managed here for all repos. It holds the working rules, the `Lanes` line, the `Tests:` authoring gate and the long-runs rule.
+- **No model names in `AGENTS.md`.** The Lanes line names agents ("the `implementer` agent builds → the `verifier` agent checks risky changes"), so a model change touches only the agent files and aliases.
+- **Gotchas files.** Folders where mistakes recur carry a nested `AGENTS.md` of facts (what broke, the check that catches it, the command that proves it), plus a one-line `CLAUDE.md` containing `@AGENTS.md`.
+  - Codex reads the nested `AGENTS.md` directly. Claude Code loads the nested `CLAUDE.md` when it reads a file in that folder, and ignores a nested `AGENTS.md` whenever the repo has a root `CLAUDE.md`.
+  - `/ai:loop` reads them while planning. With `/ai:ship`, it proposes a new line when a review finds a repeatable mistake.
 
-OpenCode Zen regularly runs models for free (ids end in `-free`; list: opencode.ai/docs/zen, or `/models` in the OpenCode TUI). Put the ones you want in `OPENCODE_FREE_MODELS` (aliases.zsh, commented example) and:
-- `grunt-run` tries them before `GRUNT_MODELS`; its first line says `WORKER: <model> (free)`.
-- `codex-review` asks them after Codex and before the paid Go fallbacks (`REVIEW_FREE=0` keeps them out of reviews); the `REVIEWER:` line says `free`.
-- `grunt-run --free-status` exits 0 while one is usable in this repo. The `implementer`, the `grunt` description, `/ai:loop` and the `Lanes` line of each repo's AGENTS.md use that as the signal to delegate more than rote work: first drafts of well-specified code, tests, docs, long surveys. The main model still reviews and runs the gates, and secrets / auth / payments / migrations / deploy config still never go to the cheap lane.
-- A free model that errors (free period over, id retired) is skipped for 15 minutes, then retried; `ai-limits` shows it.
-- Data: most free models may use what they are sent for training (Space Bunny Free says zero retention; the NVIDIA trials say no confidential data). Opt a repo out with `git config ai-loop.freelane off`.
-- The agents no longer name DeepSeek: the cheap lane is whatever `GRUNT_MODELS` (and the free list) say.
+## Pre-ship checks (`/ai:preship`)
 
-## Opus builds (0.7.0, 26 September 2026)
+```sh
+/ai:preship web            # 5 read-only checkers (default)
+/ai:preship break          # 4 breakers only
+/ai:preship all web        # 5 checkers + 4 breakers on the web app
+```
 
-The snowlan run on Sonnet took many implementer ↔ Codex review rounds; a build that passes review in fewer rounds is faster and spends less Codex quota, even at Opus rates. So:
-- `implementer` is `model: opus`, `effort: medium` (Opus 5.5's own default). For a hard spec, set `effort: high` in the file; `/effort` in the main session does not reach a pinned agent.
-- `cc-opus` and `cc-fable` drop `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`. With it on, Claude Code ignores every agent's `model:` line, which is why the implementer ran on Sonnet under `cc-opus` and why `grunt`'s relay ran on the forced model. Now each agent file decides (implementer opus, reviewer opus, grunt haiku, built-in Explore its own), and `CLAUDE_CODE_SUBAGENT_MODEL=opus` only covers agents that name no model. Under an `opus[1m]` main, an `opus` subagent runs on the same 1M model (docs: sub-agents).
-- `cc-sonnet` / `cc-sonnet-solo` now force Sonnet subagents (were Haiku): a Sonnet main keeps a Sonnet build. Use them, or the free / OpenCode lane through `grunt`, for small updates and rote work. The implementer's `effort: medium` pin applies there too.
-- Subagent effort is set only by an agent's `effort:` line; there is no environment variable for subagents alone (`CLAUDE_CODE_EFFORT_LEVEL` overrides main and subagents together and locks `/effort`, so it stays unused). An agent without the line inherits the session's level.
-- Watch the Max window: an Opus build spends it faster than a Sonnet one. Compare `/usage` over the next two or three loops.
+- **Checkers (groups 1–5).**
+  - Design, checked against `docs/STYLE-GUIDE.md` / `DESIGN.md` (it proposes one if there's none).
+  - Mobile: 375 and 768 px, 44 px taps, 200 % text.
+  - Every state.
+  - Real-user flows.
+  - Launch basics.
 
-## Verify on high (0.8.0, 26 September 2026)
+  They use the installed `agent-browser` and impeccable skills. The result is one table by severity; after your yes, one writer fixes and takes before/after screenshots.
+- **Breakers (groups 6–9).** Four `breaker` agents try to break:
+  - Security: keys in the bundle or history, direct API calls past RLS, a tampered price or role, rate limits, stored XSS.
+  - Data: 10k rows, long emoji and diacritic names, email case duplicates, empty forms.
+  - Flows under stress: double submit, webhook replay, Back mid-form, offline save, a 50 MB upload.
+  - Environment: 200 % zoom, WebKit, other time zones.
+- **Breaker rules.** Local or test environment only, two test accounts, payments in test mode, AI mocked or capped, test data removed afterwards; a breaker stops if it finds production keys.
+  - Critical items, and fixes touching auth, money or data, go through `/ai:loop`, not the one-pass fixer.
+  - All four run at high; raise `breaker.md` to `xhigh` before a payments launch.
+  - "Read-only" is an instruction, not a sandbox (Bash can still write): check `git status` after a run.
 
-From Thariq's (Claude Code team) effort study, 25 September 2026 (x.com/trq212/status/2103576349499855160, claude.dev/blog/spending-your-effort): higher effort mostly buys verification and edge-case testing, not a better approach. On Terminal-Bench 3.0, Opus 5.5 at low edited before reproducing a crash and tested once; at high/xhigh it reproduced first, compared against a reference with randomised tests, and checked that its tests failed on half-finished fixes. It pays on edge-case-heavy work (sanitisers, solvers, storage bugs, security) and not on "wrong approach" failures. His loop: interview → build on low/medium → review → verify and test on high.
-- `/ai:loop` Stage 1 now asks the open questions in one message before writing the spec (skipped when the request answers them).
-- New `verifier` agent (opus, `effort: high`): runs the feature, reproduces a fixed bug against the base branch, adds edge-case tests under the repo's `Tests:` rule (randomised comparison against a reference where one exists), never edits production code, reports `VERIFY: PASS|FAIL`. `/ai:loop` Stage 3b runs it for input handling, money/state, concurrency/time, auth/data/migrations and bug fixes, and skips it for UI, copy, config and plumbing. A FAIL goes back to the implementer for one round before the Codex diff review, which then sees the new tests.
-- `implementer` (still medium): for a bug fix, run the reproducer or write the failing test before editing.
-- Effort levels unchanged: main sessions start at high by choice (Thariq uses medium for regular feature work and high for brownfield bug fixes; `/effort medium` for a feature build stretch is the cheaper option), implementer medium, verifier and reviewer high.
-- Cost: one extra Opus-high subagent per qualifying loop, on the Max window. If `/usage` climbs, narrow Stage 3b to bug fixes and auth/data first.
+## Tests (`/ai:test-audit [path]`)
 
-## Batch 8 (0.9.0, 27 September 2026)
+Report-first pruning of low-value tests: tests that restate the code, copied fixtures, test-only seams, and duplicates of a stronger boundary test. Adapted from OpenClaw's test-audit skill. It works one folder per batch, and deletes only on your yes. The `Tests:` line in the managed `AGENTS.md` block is the matching gate for new tests.
 
-- **Stale lines fixed.** The Lanes line in five repos' AGENTS.md still said "Sonnet builds" after 0.7.0 moved the build to Opus — exactly the kind of stale instruction the audits below exist for. It now names agents, not models (snowlan's wording): "the `implementer` agent builds → the `verifier` agent checks risky changes". Keep model names out of AGENTS.md so a model change touches only the agent files and aliases.
-- **`/ai:loop` report order** (from @pgllmt's Opus 5.5 write-up): what needs you first, then files, verdicts and verify result, what was run versus only read and what could not be checked, cheap-lane chunks, and one merge risk with the check that would settle it.
-- **New `/ai:preship [target]`** (from @Voxyz_ai's 20-point list): five read-only checkers (design against `docs/STYLE-GUIDE.md` / `DESIGN.md`, mobile, every state, real-user flows, launch basics), one table, your yes, one writer fixes, before/after screenshots. Uses the installed `agent-browser` and impeccable skills. For Assigamé web before launch, mrkpatchaa.com, snowlan.
-- **`/doctor`** (Claude Code ≥ v2.1.206; alias `/checkup`) is the built-in setup checkup: install health, unused skills/MCP/plugins vs their context cost, slow hooks, and a CLAUDE.md trim that moves always-loaded guidance into skills and nested CLAUDE.md. "/doctor prompt-audit" (@daniel_mac8) is `/doctor` with a hint, not a documented subcommand. Run it once per repo, and **decline any move that takes lines out of AGENTS.md into `.claude/skills` or CLAUDE.md** — Codex and OpenCode read AGENTS.md only. Expect it to flag `review-before-commit.sh` as slow: that is the Codex review, keep it. The prompt-level audit is still `/claude-api prompt-audit` (batch 5).
-- **backpass** (github.com/kunchenguid/backpass, MIT): proposes AGENTS.md edits from your own transcripts (Claude Code `~/.claude/projects`, Codex `~/.codex/sessions`, OpenCode sqlite), every edit backed by verbatim quotes from two or more sessions; writes nothing until `backpass apply` (browser review, accept/reject each). Needs Node ≥ 22.5 and `acpx` on PATH; runs the analysis on Codex (Luna-class) and synthesis on the strongest model it finds, so it spends Codex quota — run it after the weekly review peak.
+## Audits: three jobs, three tools
+
+- **Setup health: `/doctor`** (Claude Code ≥ v2.1.206; alias `/checkup`). It covers install health, unused skills, MCP servers and plugins against their context cost, slow hooks, and a CLAUDE.md trim. Run it once per repo.
+  - Decline any move that takes lines out of `AGENTS.md` into `.claude/skills` or `CLAUDE.md`: Codex and OpenCode read `AGENTS.md` only.
+  - Expect it to flag `review-before-commit.sh` as slow. That's the Codex review; keep it.
+  - "/doctor prompt-audit" is `/doctor` with a hint, not a subcommand.
+- **Dated wording: `/claude-api prompt-audit`**, at each model release.
+  - Install: `/plugin marketplace add anthropics/skills`, then `/plugin install claude-api@anthropic-agent-skills`.
+  - Run it from `~/devs/dotfiles/claude/ai` (skills, agents and the prompts inside `bin/`), and once from a repo root for its `AGENTS.md` tree.
+  - It prints findings (`file:line`, quoted evidence, pattern, confidence) and a proposed diff for the High and Medium ones. Apply the hunks by hand.
+  - Keep, if flagged:
+    - the waiting rule in `loop` and `ship` (its minutes are the scripts' own timeouts);
+    - the `VERDICT:` pins (the hook and the skills parse them; the verdict comes right after the `REVIEWER:` line);
+    - `never` lines that state their reason.
+- **Evidence from transcripts: backpass** (github.com/kunchenguid/backpass, MIT). It proposes `AGENTS.md` edits from your own Claude Code, Codex and OpenCode transcripts, each backed by quotes from two or more sessions, and writes nothing until `backpass apply`.
+  - It needs Node ≥ 22.5 and `acpx`, and spends Codex quota, so run it after the weekly review peak.
+  - Reject edits inside the managed block (change those here) and EXTRACT→SKILL moves.
+  - `.backpass/` is excluded via `.git/info/exclude`.
+
   ```sh
   npm i -g backpass            # plus acpx, see the backpass README
   cd ~/devs/assigame-next && backpass init
   backpass --since 30d --max-transcripts 60 --max-edits 5
   backpass apply               # accept/reject in the browser
   ```
-  Our AGENTS.md files are 3–5 KB (≈1–1.4k tokens), so the token cut will be small; the value is the "followed vs missed" evidence and gaps seen in 2+ sessions. Reject edits inside the `BEGIN:ai-loop` managed block (change those here, for all repos) and EXTRACT→SKILL moves unless `skillsDir` points somewhere all three vendors read. `.backpass/` is excluded via `.git/info/exclude`.
 
-## Batch 9 (0.10.0, 28 September 2026)
+## Changelog
 
-- **`/ai:loop` Stage 1 asks like `/grill-me`** (Matt Pocock's skill, via @Alex_Kaasten): questions numbered with a recommended answer under each (reply "ok" or change one by number), facts looked up in the code or through `grunt` rather than asked, a second round only when answers open new questions, stop when nothing the build depends on is assumed. No need to install mattpocock/skills for the loop; for planning outside the loop, install only `grill-me` and `grilling` (`npx skills@latest add mattpocock/skills`, pick those two) rather than the whole plugin, whose `tdd`, `code-review` and `diagnosing-bugs` skills are model-invoked and would compete with the loop's own stages.
-- **`/ai:preship break` and `/ai:preship all`** (from @Voxyz_ai's 16 break questions): four `breaker` agents (new, Opus at effort high, tools Read/Bash/Grep/Glob, no Write/Edit) try to break security (keys in bundle or history, direct API calls past RLS, tampered price or role, rate limits, stored XSS), data (10k rows, long emoji and diacritic names, email case duplicates, empty forms), flows under stress (double submit, webhook replay, Back mid-form, offline save, 50 MB upload) and environment (200 % zoom, WebKit, other time zones). Local or test environment only, two test accounts, payments in test mode, AI mocked or capped, test data removed; a breaker stops if it finds production keys. Critical items and auth/money/data fixes go through `/ai:loop`, not the one-pass fixer. Voxyz suggests xhigh for the security group; subagent effort comes from the agent file, so all four run at high — raise `breaker.md` to `xhigh` before a payments launch if you want it. The Bash tool can still write, so "read-only" is an instruction, not a sandbox: check `git status` after a run.
-  ```sh
-  /ai:preship break              # 4 breakers only
-  /ai:preship all web            # 5 checkers + 4 breakers on the web app
-  ```
-
+- **0.10.0** (28 Sept 2026): `breaker` agent, `/ai:preship break` and `all`; Stage 1 questions numbered with recommended answers.
+- **0.9.0** (27 Sept): `/ai:preship`; loop report order; AGENTS.md Lanes lines name agents, not models.
+- **0.8.0** (26 Sept): `verifier` agent and Stage 3b; Stage 1 asks open questions first; implementer reproduces a bug before fixing it.
+- **0.7.0** (26 Sept): builds on Opus at medium; FORCE dropped from cc-opus / cc-fable; the Sonnet aliases force Sonnet subagents (were Haiku).
+- **0.6.0** (25 Sept): free OpenCode models first in `grunt-run` and the review chain; `--free-status`; per-repo opt-out; wider delegation while a free model answers.
+- **0.5.3** (24 Sept): effort pinned per alias and per agent; `/ai:test-audit`; `Tests:` line; cheap Codex tier at max.
+- **0.5.2** (24 Sept): stale-limit probe; `approval_policy` via `-c`; full stderr kept per lane.
+- **0.5.1** (24 Sept): weekly-budget downgrade; no guardian sessions; `reviews.log` and `ai-limits log`.
+- **0.5.0** (22–23 Sept): GPT-6 Sol/Luna review tiers; no polling of a running review; patterns section; route by trust; prompt suggestions off.
+- **0.4.0** (21 Sept): lane watchdog, parsed reset times, Codex pre-flight.
+- **0.3.0** (21 Sept): gotchas files; a Jev SKIP must hold twice; triage decision line.
+- **0.2.0** (20 Sept): `jev-triage`; `cc-sonnet` with an Opus advisor; subagent caps.
