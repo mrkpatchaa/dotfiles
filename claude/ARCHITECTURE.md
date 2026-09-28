@@ -28,7 +28,7 @@ flowchart LR
     MAIN["Main agent<br/>plans, decides, talks to you"]
     subgraph plugin["ai plugin · dotfiles/claude/ai"]
       SK["Skills<br/>/ai:loop · /ai:ship · /ai:test-audit · /ai:preship"]
-      AG["Agents<br/>implementer · verifier · grunt · reviewer"]
+      AG["Agents<br/>implementer · verifier · breaker · grunt · reviewer"]
       BIN["bin/<br/>codex-review · grunt-run · jev-triage · ai-limits"]
     end
   end
@@ -248,9 +248,13 @@ flowchart LR
   end
   subgraph pre["/ai:preship"]
     direction TB
-    P1["5 read-only checkers in parallel<br/>design · mobile · states · real use · launch basics"] --> P2["Main: one table by severity"]
+    P0{"Mode"} -->|default / all| P1["5 read-only checkers in parallel<br/>design · mobile · states · real use · launch basics"]
+    P0 -->|break / all| PB["4 breaker agents (Opus · high · read-only)<br/>security · data · flows under stress · environment<br/>local or test env · two test accounts"]
+    P1 --> P2["Main: one table by severity<br/>critical · broken · confusing · polish + untested"]
+    PB --> P2
     P2 --> P3{"Your yes?<br/>(strike items)"}
-    P3 -->|yes| P4["One writer fixes · gates<br/>before/after screenshots"]
+    P3 -->|yes| P4["One writer fixes polish/broken · gates<br/>before/after screenshots"]
+    P3 -->|yes, auth / money / data| P6["/ai:loop per item<br/>verifier + Codex review"]
     P3 -->|no| P5["Stop"]
   end
 ```

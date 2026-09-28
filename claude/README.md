@@ -114,3 +114,12 @@ From Thariq's (Claude Code team) effort study, 25 September 2026 (x.com/trq212/s
   ```
   Our AGENTS.md files are 3–5 KB (≈1–1.4k tokens), so the token cut will be small; the value is the "followed vs missed" evidence and gaps seen in 2+ sessions. Reject edits inside the `BEGIN:ai-loop` managed block (change those here, for all repos) and EXTRACT→SKILL moves unless `skillsDir` points somewhere all three vendors read. `.backpass/` is excluded via `.git/info/exclude`.
 
+## Batch 9 (0.10.0, 28 September 2026)
+
+- **`/ai:loop` Stage 1 asks like `/grill-me`** (Matt Pocock's skill, via @Alex_Kaasten): questions numbered with a recommended answer under each (reply "ok" or change one by number), facts looked up in the code or through `grunt` rather than asked, a second round only when answers open new questions, stop when nothing the build depends on is assumed. No need to install mattpocock/skills for the loop; for planning outside the loop, install only `grill-me` and `grilling` (`npx skills@latest add mattpocock/skills`, pick those two) rather than the whole plugin, whose `tdd`, `code-review` and `diagnosing-bugs` skills are model-invoked and would compete with the loop's own stages.
+- **`/ai:preship break` and `/ai:preship all`** (from @Voxyz_ai's 16 break questions): four `breaker` agents (new, Opus at effort high, tools Read/Bash/Grep/Glob, no Write/Edit) try to break security (keys in bundle or history, direct API calls past RLS, tampered price or role, rate limits, stored XSS), data (10k rows, long emoji and diacritic names, email case duplicates, empty forms), flows under stress (double submit, webhook replay, Back mid-form, offline save, 50 MB upload) and environment (200 % zoom, WebKit, other time zones). Local or test environment only, two test accounts, payments in test mode, AI mocked or capped, test data removed; a breaker stops if it finds production keys. Critical items and auth/money/data fixes go through `/ai:loop`, not the one-pass fixer. Voxyz suggests xhigh for the security group; subagent effort comes from the agent file, so all four run at high — raise `breaker.md` to `xhigh` before a payments launch if you want it. The Bash tool can still write, so "read-only" is an instruction, not a sandbox: check `git status` after a run.
+  ```sh
+  /ai:preship break              # 4 breakers only
+  /ai:preship all web            # 5 checkers + 4 breakers on the web app
+  ```
+
