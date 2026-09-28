@@ -9,7 +9,7 @@ Install once, in Claude Code:
 (or inside Claude Code: `/plugin marketplace add <dotfiles clone>/claude` then `/plugin install ai@mrk`)
 
 The marketplace is a local directory, so the plugin loads in place: edit anything under `ai/` and run `/reload-plugins`.
-Skills are namespaced: `/ai:loop`, `/ai:ship`. Agents: `implementer`, `grunt`, `reviewer`. `ai/bin/` is on the Bash tool's PATH while the plugin is enabled.
+Skills are namespaced: `/ai:loop`, `/ai:ship`. Agents: `implementer`, `verifier`, `grunt`, `reviewer`. `ai/bin/` is on the Bash tool's PATH while the plugin is enabled.
 
 Shell: `.zshrc` sources `aliases.zsh` (cc-fable / cc-opus / cc-sonnet, and `ai/bin` on your PATH). Since 0.2.0: `cc-sonnet` runs with an Opus advisor (`cc-sonnet-solo` is the old one), every alias caps subagents at 2 concurrent / depth 1, and `CODEX_REVIEW_MODEL[_RISKY]` pick the Codex tier per review.
 
@@ -89,3 +89,28 @@ The snowlan run on Sonnet took many implementer ↔ Codex review rounds; a build
 - `cc-sonnet` / `cc-sonnet-solo` now force Sonnet subagents (were Haiku): a Sonnet main keeps a Sonnet build. Use them, or the free / OpenCode lane through `grunt`, for small updates and rote work. The implementer's `effort: medium` pin applies there too.
 - Subagent effort is set only by an agent's `effort:` line; there is no environment variable for subagents alone (`CLAUDE_CODE_EFFORT_LEVEL` overrides main and subagents together and locks `/effort`, so it stays unused). An agent without the line inherits the session's level.
 - Watch the Max window: an Opus build spends it faster than a Sonnet one. Compare `/usage` over the next two or three loops.
+
+## Verify on high (0.8.0, 26 September 2026)
+
+From Thariq's (Claude Code team) effort study, 25 September 2026 (x.com/trq212/status/2103576349499855160, claude.dev/blog/spending-your-effort): higher effort mostly buys verification and edge-case testing, not a better approach. On Terminal-Bench 3.0, Opus 5.5 at low edited before reproducing a crash and tested once; at high/xhigh it reproduced first, compared against a reference with randomised tests, and checked that its tests failed on half-finished fixes. It pays on edge-case-heavy work (sanitisers, solvers, storage bugs, security) and not on "wrong approach" failures. His loop: interview → build on low/medium → review → verify and test on high.
+- `/ai:loop` Stage 1 now asks the open questions in one message before writing the spec (skipped when the request answers them).
+- New `verifier` agent (opus, `effort: high`): runs the feature, reproduces a fixed bug against the base branch, adds edge-case tests under the repo's `Tests:` rule (randomised comparison against a reference where one exists), never edits production code, reports `VERIFY: PASS|FAIL`. `/ai:loop` Stage 3b runs it for input handling, money/state, concurrency/time, auth/data/migrations and bug fixes, and skips it for UI, copy, config and plumbing. A FAIL goes back to the implementer for one round before the Codex diff review, which then sees the new tests.
+- `implementer` (still medium): for a bug fix, run the reproducer or write the failing test before editing.
+- Effort levels unchanged: main sessions start at high by choice (Thariq uses medium for regular feature work and high for brownfield bug fixes; `/effort medium` for a feature build stretch is the cheaper option), implementer medium, verifier and reviewer high.
+- Cost: one extra Opus-high subagent per qualifying loop, on the Max window. If `/usage` climbs, narrow Stage 3b to bug fixes and auth/data first.
+
+## Batch 8 (0.9.0, 27 September 2026)
+
+- **Stale lines fixed.** The Lanes line in five repos' AGENTS.md still said "Sonnet builds" after 0.7.0 moved the build to Opus — exactly the kind of stale instruction the audits below exist for. It now names agents, not models (snowlan's wording): "the `implementer` agent builds → the `verifier` agent checks risky changes". Keep model names out of AGENTS.md so a model change touches only the agent files and aliases.
+- **`/ai:loop` report order** (from @pgllmt's Opus 5.5 write-up): what needs you first, then files, verdicts and verify result, what was run versus only read and what could not be checked, cheap-lane chunks, and one merge risk with the check that would settle it.
+- **New `/ai:preship [target]`** (from @Voxyz_ai's 20-point list): five read-only checkers (design against `docs/STYLE-GUIDE.md` / `DESIGN.md`, mobile, every state, real-user flows, launch basics), one table, your yes, one writer fixes, before/after screenshots. Uses the installed `agent-browser` and impeccable skills. For Assigamé web before launch, mrkpatchaa.com, snowlan.
+- **`/doctor`** (Claude Code ≥ v2.1.206; alias `/checkup`) is the built-in setup checkup: install health, unused skills/MCP/plugins vs their context cost, slow hooks, and a CLAUDE.md trim that moves always-loaded guidance into skills and nested CLAUDE.md. "/doctor prompt-audit" (@daniel_mac8) is `/doctor` with a hint, not a documented subcommand. Run it once per repo, and **decline any move that takes lines out of AGENTS.md into `.claude/skills` or CLAUDE.md** — Codex and OpenCode read AGENTS.md only. Expect it to flag `review-before-commit.sh` as slow: that is the Codex review, keep it. The prompt-level audit is still `/claude-api prompt-audit` (batch 5).
+- **backpass** (github.com/kunchenguid/backpass, MIT): proposes AGENTS.md edits from your own transcripts (Claude Code `~/.claude/projects`, Codex `~/.codex/sessions`, OpenCode sqlite), every edit backed by verbatim quotes from two or more sessions; writes nothing until `backpass apply` (browser review, accept/reject each). Needs Node ≥ 22.5 and `acpx` on PATH; runs the analysis on Codex (Luna-class) and synthesis on the strongest model it finds, so it spends Codex quota — run it after the weekly review peak.
+  ```sh
+  npm i -g backpass            # plus acpx, see the backpass README
+  cd ~/devs/assigame-next && backpass init
+  backpass --since 30d --max-transcripts 60 --max-edits 5
+  backpass apply               # accept/reject in the browser
+  ```
+  Our AGENTS.md files are 3–5 KB (≈1–1.4k tokens), so the token cut will be small; the value is the "followed vs missed" evidence and gaps seen in 2+ sessions. Reject edits inside the `BEGIN:ai-loop` managed block (change those here, for all repos) and EXTRACT→SKILL moves unless `skillsDir` points somewhere all three vendors read. `.backpass/` is excluded via `.git/info/exclude`.
+

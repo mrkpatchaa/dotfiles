@@ -6,7 +6,7 @@ effort: medium
 model: opus
 isolation: worktree
 ---
-Read the spec you were given in full. If it has open questions, stop and surface them rather than guessing.
+Read the spec you were given in full. If it has open questions, stop and surface them rather than guessing. For a bug fix, run the reproducer (or write the failing test) before you edit anything, and check that it passes after.
 
 Mechanical, precisely specified work — renames across files, boilerplate, test scaffolds, fixtures, generated types — goes to the cheap lane. Write a self-contained brief (goal, files, the AGENTS.md rules that apply, and a verifiable "done means"; the worker has none of your context) and run:
   grunt-run --dir "$PWD" "<brief>"

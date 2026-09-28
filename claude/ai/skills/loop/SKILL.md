@@ -1,13 +1,13 @@
 ---
 name: loop
-description: Use when asked to build a real feature end to end. Plans a spec, has an independent reviewer challenge it, implements on Opus (effort medium) with the cheap OpenCode lane doing the rote parts (more of them when a free model is on), then independent QA. Not for anything smaller than a real feature.
+description: Use when asked to build a real feature end to end. Plans a spec, has an independent reviewer challenge it, implements on Opus (effort medium) with the cheap OpenCode lane doing the rote parts (more of them when a free model is on), verifies edge cases on Opus at effort high, then independent QA. Not for anything smaller than a real feature.
 disable-model-invocation: true
 ---
 Run the full loop for: $ARGUMENTS
 
 Conventions: specs live at the repo root as `SPEC-<slug>.md`. Never overwrite an existing spec — pick a new slug. The helper commands below are on PATH while the `ai` plugin is enabled. The first output line of every helper names who actually did the work (`WORKER:` / `REVIEWER:`); carry those names into the final report.
 
-Stage 1 — Plan (you, at the tier you're running). Write `SPEC-<slug>.md`: files to touch with exact paths, interfaces, edge cases, existing patterns to copy (name the file), and a "Done means" list where every item is verifiable (tests, build, observable behaviour). If a folder the change touches has a nested `AGENTS.md` of gotchas, read it and name in the spec which of its lines apply. For research first ("how does the existing auth middleware work"), delegate to the `grunt` agent rather than reading everything yourself; when `grunt-run --free-status` exits 0 that research costs nothing, so prefer it for any survey longer than a few files.
+Stage 1 — Plan (you, at the tier you're running). First ask me, in one message, the questions the request leaves open that would change the build (scope, behaviour on the edge cases you can foresee, what to leave out); skip this when the request already answers them. Then write `SPEC-<slug>.md`: files to touch with exact paths, interfaces, edge cases, existing patterns to copy (name the file), and a "Done means" list where every item is verifiable (tests, build, observable behaviour). If a folder the change touches has a nested `AGENTS.md` of gotchas, read it and name in the spec which of its lines apply. For research first ("how does the existing auth middleware work"), delegate to the `grunt` agent rather than reading everything yourself; when `grunt-run --free-status` exits 0 that research costs nothing, so prefer it for any survey longer than a few files.
 
 Stage 2 — Challenge the spec (independent reviewer). Run in Bash:
   codex-review spec SPEC-<slug>.md
@@ -17,6 +17,8 @@ Fold the findings that hold up into the spec; list the ones you rejected, with t
 
 Stage 3 — Build. Delegate to the `implementer` agent with the spec path as its brief. It writes the substantive logic itself and sends mechanical, precisely specified chunks to the cheap lane through `grunt-run`, doing a chunk itself when every cheap lane is limited. You do not need to split that work for it.
 
+Stage 3b — Verify (the `verifier` agent, Opus at effort high). Run it when the change has hidden edge cases: it parses, sanitises or validates input; moves money or state; handles concurrency, retries or time; touches auth, data or a migration; or fixes a bug in existing code. Skip it for UI layout, copy, config and plumbing, and say that you skipped it in the report. Brief: the spec path, the directory the implementer worked in, the base branch. It runs the feature, reproduces a fixed bug, and adds edge-case tests without touching production code. On `VERIFY: FAIL`, send its failing tests to the `implementer` as the brief (one round), then go on to Stage 4 with the verifier's tests included in the diff.
+
 Stage 4 — QA (independent reviewer). Run in Bash:
   codex-review diff <base-branch> [focus]
 For anything touching auth, payments, schemas or data, pass a focus: `codex-review diff main "auth flows, payment state, data loss"`. A focus also selects the stronger Codex tier when `CODEX_REVIEW_MODEL_RISKY` is set, so pass one only when the diff warrants it. Same fallback rule as Stage 2 (exit 75 → `reviewer` agent, flagged). Show me the verdict.
@@ -25,4 +27,4 @@ Stage 5 — Fix loop, at most two rounds, back through the `implementer` with th
 
 Gotchas: if QA found a mistake that will recur in that folder (not a one-off bug), propose one line for the nearest nested `AGENTS.md`, as a fact with the check that catches it. Show it to me; add it only on my yes. A folder getting its first gotchas file also gets a one-line `CLAUDE.md` containing `@AGENTS.md`, because Claude Code does not read a nested `AGENTS.md` in a repo that has a root `CLAUDE.md`.
 
-Never merge. Report: files changed, both verdicts with the name of the reviewer that produced each, which chunks went to the cheap lane and on which model, and anything still ambiguous.
+Never merge. Report, in this order: what needs a decision or action from me; files changed; both verdicts with the name of the reviewer that produced each; the verify result (or why it was skipped); what was checked by running it versus only read, and what could not be checked; which chunks went to the cheap lane and on which model; then one merge risk — the concrete thing that could still go wrong if this merged, and the check that would settle it.

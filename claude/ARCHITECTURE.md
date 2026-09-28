@@ -8,7 +8,7 @@ A map of `dotfiles/claude`: what launches what, who reviews what, and where each
 4. [`codex-review`: who reviews, and the fallback chain](#4-codex-review-who-reviews-and-the-fallback-chain)
 5. [The pre-commit hook](#5-the-pre-commit-hook)
 6. [`grunt-run`: the cheap lane](#6-grunt-run-the-cheap-lane)
-7. [`/ai:ship` and `/ai:test-audit`](#7-aiship-and-aitest-audit)
+7. [`/ai:ship`, `/ai:test-audit` and `/ai:preship`](#7-aiship-aitest-audit-and-aipreship)
 8. [Limits and state](#8-limits-and-state)
 
 ---
@@ -27,8 +27,8 @@ flowchart LR
   subgraph cc["Claude Code session · Max 5x"]
     MAIN["Main agent<br/>plans, decides, talks to you"]
     subgraph plugin["ai plugin · dotfiles/claude/ai"]
-      SK["Skills<br/>/ai:loop · /ai:ship · /ai:test-audit"]
-      AG["Agents<br/>implementer · grunt · reviewer"]
+      SK["Skills<br/>/ai:loop · /ai:ship · /ai:test-audit · /ai:preship"]
+      AG["Agents<br/>implementer · verifier · grunt · reviewer"]
       BIN["bin/<br/>codex-review · grunt-run · jev-triage · ai-limits"]
     end
   end
@@ -78,6 +78,7 @@ Everything outside Claude is reached through the scripts in `bin/`, never direct
 | Agent | Model in its file | Effort | Runs where |
 |---|---|---|---|
 | `implementer` | opus (Sonnet under cc-sonnet, which forces) | medium (pinned) | its own git worktree |
+| `verifier` | opus (Sonnet under cc-sonnet, which forces) | high (pinned) | the implementer's worktree; writes tests only |
 | `reviewer` | opus (Sonnet under cc-sonnet, which forces) | high (pinned) | read-only |
 | `grunt` | haiku | none (Haiku has no effort setting) | relays to `grunt-run` |
 
@@ -100,6 +101,7 @@ sequenceDiagram
   participant Grunt as grunt → grunt-run
   participant Rev as codex-review
   participant Impl as implementer (Opus medium, worktree)
+  participant Ver as verifier (Opus high)
   participant Claude as reviewer agent (Opus)
 
   You->>Main: /ai:loop <feature>
@@ -107,6 +109,8 @@ sequenceDiagram
     Main->>Grunt: self-contained brief (survey, read logs)
     Grunt-->>Main: summary · WORKER: <model>
   end
+  Main->>You: Stage 1: open questions (one message)
+  You->>Main: answers
   Main->>Main: Stage 1: write SPEC-<slug>.md with "Done means"
   Main->>Rev: Stage 2: codex-review spec SPEC-<slug>.md (background)
   alt a reviewer answered
@@ -121,6 +125,13 @@ sequenceDiagram
   Impl->>Grunt: mechanical chunks (grunt-run)
   Grunt-->>Impl: done · WORKER: <model> (75: do it yourself)
   Impl-->>Main: changed files, test commands with exit codes
+  opt Stage 3b: edge-case-heavy change or bug fix
+    Main->>Ver: spec + implementer's directory + base
+    Ver-->>Main: VERIFY: PASS/FAIL + new edge-case tests
+    opt FAIL
+      Main->>Impl: failing tests as the brief (one round)
+    end
+  end
   Main->>Rev: Stage 4: codex-review diff <base> [focus]
   Rev-->>Main: VERDICT (or exit 75 → reviewer agent)
   loop Stage 5: at most two fix rounds
@@ -128,10 +139,10 @@ sequenceDiagram
     Impl-->>Main: fixes
     Main->>Rev: re-run Stage 4
   end
-  Main->>You: report: files, both verdicts and who gave them, cheap-lane models, gotcha proposals
+  Main->>You: report: files, both verdicts and who gave them, verify result, cheap-lane models, gotcha proposals
 ```
 
-The loop stops for you twice: after the spec review (step "yes") and on a second BLOCK in Stage 5. It never merges.
+The loop stops for you up to three times: for the open questions before the spec (skipped when the request answers them), after the spec review (step "yes") and on a second BLOCK in Stage 5. It never merges.
 
 ---
 
@@ -218,7 +229,7 @@ When a free model is on, the implementer, `/ai:loop`, the `grunt` agent and each
 
 ---
 
-## 7. `/ai:ship` and `/ai:test-audit`
+## 7. `/ai:ship`, `/ai:test-audit` and `/ai:preship`
 
 ```mermaid
 flowchart LR
@@ -234,6 +245,13 @@ flowchart LR
     T2 --> T3{"Your yes?"}
     T3 -->|yes| T4["Delete that batch · tests + type check<br/>report test vs production lines"]
     T3 -->|no| T5["Stop"]
+  end
+  subgraph pre["/ai:preship"]
+    direction TB
+    P1["5 read-only checkers in parallel<br/>design · mobile · states · real use · launch basics"] --> P2["Main: one table by severity"]
+    P2 --> P3{"Your yes?<br/>(strike items)"}
+    P3 -->|yes| P4["One writer fixes · gates<br/>before/after screenshots"]
+    P3 -->|no| P5["Stop"]
   end
 ```
 

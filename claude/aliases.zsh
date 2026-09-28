@@ -61,7 +61,11 @@ export CODEX_REVIEW_EFFORT_CHEAP="max"         # the weekly-budget downgrade tie
 # exits 0. Ids end in -free (opencode.ai/docs/zen; `/models` in the OpenCode TUI). Free periods end without notice: a model that errors is skipped
 # for 15 min, then retried. Mind the data terms: most free models may train on what they are sent (Space Bunny Free is zero-retention; the
 # Nemotron trials say no confidential data). Per repo opt-out: `git config ai-loop.freelane off`. Reviews only: REVIEW_FREE=0.
-# export OPENCODE_FREE_MODELS="opencode/space-bunny-free opencode/mimo-v2.6-flash-free"
+# export OPENCODE_FREE_MODELS="opencode-go/space-bunny-free opencode-go/longcat-2.5-preview-free"
+# NVIDIA build.nvidia.com (batch 7, 26 Sep 2026): free endpoints for DeepSeek V4.1 Flash, GLM 5.3, GLM 5.3 Flash, Kimi K3 — OpenAI-compatible,
+# https://integrate.api.nvidia.com/v1, key in NVIDIA_API_KEY. Free tier = development/testing/evaluation only, per-model rate limits unpublished,
+# data terms not checked: treat like the training free models (opt-out repos stay out). To try: add the provider in OpenCode, `opencode models`
+# to get the exact ids, then append e.g. the Kimi K3 and GLM 5.3 ids to OPENCODE_FREE_MODELS (is_free matches the id as written).
 
 # Jev triage key: keep it out of every repo. jev-triage reads $TYPESAFE_API_KEY, else this file (chmod 600):
 #   mkdir -p ~/.config/typesafe && pbpaste > ~/.config/typesafe/api-key && chmod 600 ~/.config/typesafe/api-key
