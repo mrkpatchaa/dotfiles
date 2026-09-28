@@ -83,11 +83,14 @@ run_lane() { local label="$1" out="$2" err="$3"; shift 3
   done
   wait "$pid"; }
 
-# Free OpenCode models (plugin 0.6.0). OPENCODE_FREE_MODELS="opencode/<id>-free …" (aliases.zsh) lists models that cost nothing right now;
+# Free OpenCode models (plugin 0.6.0). OPENCODE_FREE_MODELS="opencode-go/<id>-free …" (aliases.zsh) lists models that cost nothing right now;
 # grunt-run tries them before GRUNT_MODELS and codex-review before REVIEW_FALLBACK_MODELS. A repo opts out with `git config ai-loop.freelane off`
 # (most free models may train on what they are sent). free_models [dir] prints the usable ones: listed, not skipped, repo not opted out.
 free_models() { local m
   [ -n "${OPENCODE_FREE_MODELS:-}" ] || return 0
   [ "$(git ${1:+-C "$1"} config --get ai-loop.freelane 2>/dev/null)" = off ] && return 0
   for m in $OPENCODE_FREE_MODELS; do recently_limited "$m" || printf '%s ' "$m"; done; }
+# cli_rejected <err> — the installed CLI refused the command line itself (a flag removed in an upgrade): every model would fail the same way,
+# so callers stop trying models and say so instead of skipping them as if they were down.
+cli_rejected() { grep -Eiq 'unrecognized (flag|option|argument)|unknown (flag|option)|unexpected argument' "$1" 2>/dev/null; }
 is_free() { case " ${OPENCODE_FREE_MODELS:-} " in *" $1 "*) return 0 ;; esac; return 1; }

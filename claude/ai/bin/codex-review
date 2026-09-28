@@ -57,6 +57,7 @@ after_failure() {  # after_failure <lane> <rc> <out> <err> — record why the la
   elif [ "$rc" = 201 ]; then mark_limited "$lane" stalled; echo stalled
   elif [ "$rc" = 202 ]; then mark_limited "$lane" timeout; echo stalled
   else echo "codex-review: $lane failed (exit $rc, not a limit). stderr:" >&2; grep -E '^[^ +-]' "$err" | tail -c 1500 >&2; echo >&2; keep_stderr "$lane" "$err"
+    if cli_rejected "$err"; then echo cli; return; fi   # the CLI itself refused the command: not the model's fault, don't skip it
     is_free "$lane" && mark_limited "$lane" stalled   # a free period that ended: skip that model for 15 min
     echo error; fi; }
 keep_stderr() { tail -c 8000 "$2" > "$STATE_DIR/$(printf '%s' "$1" | tr '/:' '__').stderr" 2>/dev/null; }   # full stderr of the last failure per lane, for `ai-limits log` readers
@@ -153,12 +154,13 @@ if [ "${REVIEW_NO_OPENCODE:-0}" != "1" ] && command -v opencode >/dev/null 2>&1;
     fit_budget || { echo "codex-review: review budget of ${BUDGET}s used up" >&2; break; }
     out="$(mktemp)"; err="$(mktemp)"
     run_lane "codex-review: $m" "$out" "$err" env OPENCODE_PERMISSION='{"edit":"deny","bash":{"*":"deny","git diff*":"allow","git status*":"allow","git log*":"allow","git show*":"allow"}}' \
-      opencode run --print-logs --model "$m" --variant high --auto "$PROMPT"; rc=$?
+      opencode run --print-logs --model "$m#high" --auto "$PROMPT"; rc=$?   # opencode 2.x: variant rides on the model id
     if [ $rc -eq 0 ] && [ -s "$out" ]; then
       echo "REVIEWER: $m ($(is_free "$m" && echo 'free, ')fallback — Codex unavailable)"; cat "$out"; log_review "$m" "$m" "$(verdict_of "$out")" ok fallback; rm -f "$out" "$err"; exit 0
     fi
     [ $rc -eq 0 ] && rc=1
     why="$(after_failure "$m" "$rc" "$out" "$err")"; log_review "$m" "$m" - "$why" "$(fail_note "$m" "$rc" "$why" "$out" "$err")"
+    if [ "$why" = cli ]; then echo "codex-review: opencode $(opencode --version 2>/dev/null) rejected the command line — every OpenCode model would fail the same way; codex-review needs updating for it" >&2; rm -f "$out" "$err"; break; fi
     # Go limits are per model on paper, but one exhausted model has been seen to block the whole subscription (anomalyco/opencode #49014).
     # Two Go models in a row at their limit → stop probing the rest and skip the provider until the earlier of the two resets.
     if [ "$why" = limit ] && [ "$(provider_of "$m")" = opencode-go ]; then

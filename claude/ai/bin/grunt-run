@@ -24,6 +24,7 @@ while [ $# -gt 0 ]; do
     *) break ;;
   esac
 done
+[ -z "$DIR" ] || cd "$DIR" || { echo "grunt-run: cannot cd to $DIR" >&2; exit 64; }   # opencode 2.x has no --dir: run from the directory instead
 FREE="$(free_models "$DIR")"
 if [ "$STATUS" = 1 ]; then
   if [ -n "$FREE" ] && command -v opencode >/dev/null 2>&1; then echo "free: $FREE"; exit 0; fi
@@ -46,7 +47,7 @@ for m in $MODELS; do
   if recently_limited "$m"; then echo "grunt-run: skipping $m — back $(lane_back "$m")" >&2; continue; fi
   out="$(mktemp)"; err="$(mktemp)"
   # --print-logs: `opencode run` retries a limited provider forever in silence; the logs on stderr are where the watchdog sees the limit.
-  run_lane "grunt-run: $m" "$out" "$err" opencode run --print-logs ${DIR:+--dir "$DIR"} --agent "$AGENT" --model "$m" --variant "$VARIANT" --auto "$BRIEF"; rc=$?
+  run_lane "grunt-run: $m" "$out" "$err" opencode run --print-logs --agent "$AGENT" --model "$m${VARIANT:+#$VARIANT}" --auto "$BRIEF"; rc=$?   # opencode 2.x: variant rides on the model id
   if [ $rc -eq 0 ]; then if is_free "$m"; then echo "WORKER: $m (free)"; else echo "WORKER: $m"; fi; cat "$out"; rm -f "$out" "$err"; exit 0; fi
   if [ $rc -eq 200 ] || { [ $rc -lt 200 ] && failed_on_limit "$out" "$err"; }; then
     mark_limited "$m" limit "$err" "$out"; echo "grunt-run: $m is at its limit — back $(lane_back "$m"). Trying the next model" >&2
@@ -55,6 +56,7 @@ for m in $MODELS; do
   elif [ $rc -eq 201 ]; then mark_limited "$m" stalled
   elif [ $rc -eq 202 ]; then mark_limited "$m" timeout
   else echo "grunt-run: $m failed (exit $rc, not a limit). stderr:" >&2; grep -E '^[^ +-]' "$err" | tail -c 1500 >&2; echo >&2
+    if cli_rejected "$err"; then echo "WORKER: none — opencode $(opencode --version 2>/dev/null) rejected the command line (see stderr above); grunt-run needs updating for it. Do this chunk yourself and say so in the report." >&2; rm -f "$out" "$err"; exit 75; fi
     is_free "$m" && mark_limited "$m" stalled   # free periods end without notice: a retired free model is skipped for 15 min instead of failing every call
   fi
   rm -f "$out" "$err"
