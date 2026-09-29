@@ -111,8 +111,8 @@ sequenceDiagram
   end
   Main->>You: Stage 1: open questions (one message)
   You->>Main: answers
-  Main->>Main: Stage 1: write SPEC-<slug>.md with "Done means"
-  Main->>Rev: Stage 2: codex-review spec SPEC-<slug>.md (background)
+  Main->>Main: Stage 1: write specs/SPEC-<slug>.md with "Done means"
+  Main->>Rev: Stage 2: codex-review spec specs/SPEC-<slug>.md (background)
   alt a reviewer answered
     Rev-->>Main: VERDICT + findings · REVIEWER: <who>
   else exit 75, nobody reachable
