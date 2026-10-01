@@ -128,6 +128,8 @@ Tiers, set in `aliases.zsh` (update the Codex CLI so it knows the ids):
 /ai:preship all web        # 5 checkers + 4 breakers on the web app
 ```
 
+Adapted from @Voxyz_ai's 20-point pre-launch list (26 Sept 2026) and 16 break questions (27 Sept 2026).
+
 - **Checkers (groups 1–5).**
   - Design, checked against `docs/STYLE-GUIDE.md` / `DESIGN.md` (it proposes one if there's none).
   - Mobile: 375 and 768 px, 44 px taps, 200 % text.
@@ -148,7 +150,7 @@ Tiers, set in `aliases.zsh` (update the Codex CLI so it knows the ids):
 
 ## Tests (`/ai:test-audit [path]`)
 
-Report-first pruning of low-value tests: tests that restate the code, copied fixtures, test-only seams, and duplicates of a stronger boundary test. Adapted from OpenClaw's test-audit skill. It works one folder per batch, and deletes only on your yes. The `Tests:` line in the managed `AGENTS.md` block is the matching gate for new tests.
+Report-first pruning of low-value tests: tests that restate the code, copied fixtures, test-only seams, and duplicates of a stronger boundary test. Adapted from OpenClaw's test-audit skill (github.com/openclaw/openclaw, `.agents/skills/test-audit`); the optional consolidation stage follows Kent C. Dodds' Kody test surgery. It works one folder per batch, and deletes only on your yes. The `Tests:` line in the managed `AGENTS.md` block is the matching gate for new tests.
 
 ## Audits: three jobs, three tools
 
@@ -178,6 +180,7 @@ Report-first pruning of low-value tests: tests that restate the code, copied fix
 
 ## Changelog
 
+- **0.11.3** (1 Oct 2026): prompt audit — attributions moved from `/ai:preship` and `/ai:test-audit` into this README; `codex-review spec` needs the spec path (the old `SPEC.md` default predates `docs/specs/`).
 - **0.11.2** (1 Oct 2026): the commit hook falls back to a headless Claude review when Codex and OpenCode are unreachable.
 - **0.11.1** (1 Oct 2026): `/ai:test-audit` Stage 4, consolidation with coverage measured before and after; Codex reviews on GPT-6.1 Sol; `--advisor fable` suggested for long cc-opus runs.
 - **0.11.0** (1 Oct 2026): docs layout: specs in `docs/specs/`, plans and run notes in `docs/tasks/`, shipped or dropped work in `docs/archive/`; `/ai:ship` archives what the branch finished and proposes the rest; session habits in the managed block.

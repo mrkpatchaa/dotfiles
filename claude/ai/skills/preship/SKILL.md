@@ -3,7 +3,7 @@ name: preship
 description: Use before launching or publicly sharing a web app or site. Five read-only checkers (design, mobile, states, real-user flows, launch basics) report issues with evidence; `break` sends four read-only breakers (security, data, flows under stress, environment) instead, `all` runs both. After my yes, one writer fixes the polish items and security or data items go through /ai:loop.
 disable-model-invocation: true
 ---
-Pre-ship check for: $ARGUMENTS (default: the web app in this repo). Adapted from @Voxyz_ai's 20-point list (26 September 2026) and 16 break questions (27 September 2026).
+Pre-ship check for: $ARGUMENTS (default: the web app in this repo).
 
 Mode: if the first word of the arguments is `break`, run groups 6–9 only; if it is `all`, run 1–9; otherwise run 1–5. The rest of the arguments name the app.
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # codex-review — independent review with fallbacks: Codex → OpenCode Go reviewer → exit 75 (caller uses the Claude `reviewer` agent).
-# Usage: codex-review spec [SPEC-file]           adversarial review of a spec document (default SPEC.md)
+# Usage: codex-review spec <SPEC-file>           adversarial review of a spec document (docs/specs/SPEC-<slug>.md)
 #        codex-review diff [base] [focus text]    review of the working tree vs a base branch (default: repo default branch)
 # Env:   CODEX_REVIEW_MODEL=<id>        Codex model for spec reviews and ordinary diff reviews (unset → Codex's own config.toml)
 #        CODEX_REVIEW_MODEL_RISKY=<id>  Codex model when a focus is given (auth, payments, schema…); unset → CODEX_REVIEW_MODEL
@@ -30,7 +30,7 @@ default_base() {  # origin's default branch, else main, else master (the pipe to
 MODE="${1:-diff}"; [ $# -gt 0 ] && shift
 case "$MODE" in
   spec)
-    FILE="${1:-SPEC.md}"
+    FILE="${1:-}"; [ -n "$FILE" ] || { echo "codex-review: name the spec, e.g. codex-review spec docs/specs/SPEC-<slug>.md" >&2; exit 64; }
     [ -f "$FILE" ] || { echo "codex-review: $FILE not found" >&2; exit 66; }
     PROMPT="Review the file $FILE as a senior engineer who wants this plan to fail. Read it fully, and read the code it references where that matters. Find: missing edge cases, ambiguous requirements, anything under 'Done means' that cannot be verified, security or data-loss risks, and any simpler design that meets the same goal. The first line of your answer must be exactly 'VERDICT: READY' or 'VERDICT: REVISE'. Then the findings, most serious first, each naming the spec section or file it concerns and a concrete fix." ;;
   diff)

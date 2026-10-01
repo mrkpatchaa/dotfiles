@@ -5,7 +5,7 @@ disable-model-invocation: true
 ---
 Audit the tests in: $ARGUMENTS (default: the whole repo).
 
-Adapted from OpenClaw's test-audit skill (github.com/openclaw/openclaw, .agents/skills/test-audit), which removed about 400k lines of tests without a meaningful drop in coverage. The goal is confidence per line of test, not a deletion count.
+The goal is confidence per line of test, not a deletion count.
 
 Read the root and nested `AGENTS.md` first. Keep this read-only until stage 3.
 
@@ -35,4 +35,4 @@ Stage 4 — Consolidate (optional, only on my yes, after the deletions). Shrink 
 - repeated inline objects become `make*`/`seed*` builders in the same file, with expected values kept literal;
 - hand-rolled fakes of a database or service become the real thing where the repo can run it (SQLite or a local Supabase with migrations);
 - money, credits, limits and cross-user isolation assertions stay exact or get stricter, never looser.
-Measure line and branch coverage before and after with the repo's coverage command; report both, and restore any source file that lost coverage before committing. (Method from Kent C. Dodds' Kody test surgery, which removed about 70k lines with coverage unchanged.)
+Measure line and branch coverage before and after with the repo's coverage command; report both, and restore any source file that lost coverage before committing.
