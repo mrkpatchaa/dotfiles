@@ -114,7 +114,7 @@ Tiers, set in `aliases.zsh` (update the Codex CLI so it knows the ids):
 
 ## Instruction files
 
-- **One `AGENTS.md` per repo**, read by Claude Code through a one-line `CLAUDE.md` (`@AGENTS.md`), and by Codex and OpenCode directly. The `BEGIN:ai-loop` block is managed here for all repos. It holds the working rules, the `Lanes` line, the `Tests:` authoring gate and the long-runs rule.
+- **One `AGENTS.md` per repo**, read by Claude Code through a one-line `CLAUDE.md` (`@AGENTS.md`), and by Codex and OpenCode directly. The `BEGIN:ai-loop` block is managed here for all repos. It holds the working rules, the `Lanes` line, the `Tests:` authoring gate, the long-runs rule and four session habits from `claude-doctor` (read before editing and stop after a third patch to the same spot; restate a correction in one line, then act; change approach after two failures; check the original request before reporting). Repos without the block carry the same four lines as a `## Session habits` section.
 - **No model names in `AGENTS.md`.** The Lanes line names agents ("the `implementer` agent builds → the `verifier` agent checks risky changes"), so a model change touches only the agent files and aliases.
 - **Gotchas files.** Folders where mistakes recur carry a nested `AGENTS.md` of facts (what broke, the check that catches it, the command that proves it), plus a one-line `CLAUDE.md` containing `@AGENTS.md`.
   - Codex reads the nested `AGENTS.md` directly. Claude Code loads the nested `CLAUDE.md` when it reads a file in that folder, and ignores a nested `AGENTS.md` whenever the repo has a root `CLAUDE.md`.
