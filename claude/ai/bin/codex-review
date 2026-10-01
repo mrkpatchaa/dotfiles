@@ -36,7 +36,7 @@ case "$MODE" in
   diff)
     BASE="${1:-}"; [ $# -gt 0 ] && shift; FOCUS="$*"
     [ -n "$BASE" ] || BASE="$(default_base)"
-    PROMPT="Review the changes in this working tree against $BASE (run: git diff $BASE). If a specs/SPEC-*.md (or a root SPEC-*.md / SPEC.md) describes this work, check the diff against it; also check the conventions in AGENTS.md. Look for bugs, missing error handling, security issues, spec drift, and tests that pass without testing behaviour.${FOCUS:+ Focus especially on: $FOCUS.} The first line of your answer must be exactly 'VERDICT: SHIP', 'VERDICT: NEEDS WORK' or 'VERDICT: BLOCK'. Then the findings with file:line, most serious first, each with a concrete fix." ;;
+    PROMPT="Review the changes in this working tree against $BASE (run: git diff $BASE). If a docs/specs/SPEC-*.md (or an older specs/SPEC-*.md, root SPEC-*.md or SPEC.md) describes this work, check the diff against it; also check the conventions in AGENTS.md. Look for bugs, missing error handling, security issues, spec drift, and tests that pass without testing behaviour.${FOCUS:+ Focus especially on: $FOCUS.} The first line of your answer must be exactly 'VERDICT: SHIP', 'VERDICT: NEEDS WORK' or 'VERDICT: BLOCK'. Then the findings with file:line, most serious first, each with a concrete fix." ;;
   -h|--help|*) sed -n '2,22p' "$0" >&2; exit 64 ;;
 esac
 # Model per review: the mid tier by default, the strong one only where a focus says the diff is risky. Protects the Plus quota.
