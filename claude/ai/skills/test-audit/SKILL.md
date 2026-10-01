@@ -28,3 +28,11 @@ Show me the candidates as a table (file · test · why low value · what still c
 Stage 3 — One batch. On my yes, delete that batch only (one package or folder), plus any test-only exports and dead code it frees. Do not add replacement tests. Do not edit files while a test runner is running. Run that package's test command and type check, then `git diff --numstat`, and report test lines and production lines removed separately. A kept test that now fails is a possible product bug: reproduce it and tell me; never delete it to go green. The pre-commit review runs on the commit as usual.
 
 Then offer the next folder; one batch per commit.
+
+Stage 4 — Consolidate (optional, only on my yes, after the deletions). Shrink what stays without losing what it checks, one folder per commit:
+- one-test-per-row matrices become `[input, expected]` tables asserted together, written so a failure still names the row;
+- tests with identical setup merge into one workflow test when the repo's testing notes allow it;
+- repeated inline objects become `make*`/`seed*` builders in the same file, with expected values kept literal;
+- hand-rolled fakes of a database or service become the real thing where the repo can run it (SQLite or a local Supabase with migrations);
+- money, credits, limits and cross-user isolation assertions stay exact or get stricter, never looser.
+Measure line and branch coverage before and after with the repo's coverage command; report both, and restore any source file that lost coverage before committing. (Method from Kent C. Dodds' Kody test surgery, which removed about 70k lines with coverage unchanged.)

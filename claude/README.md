@@ -64,8 +64,8 @@ Tiers, set in `aliases.zsh` (update the Codex CLI so it knows the ids):
 
 | Variable | Value | Used for |
 | --- | --- | --- |
-| `CODEX_REVIEW_MODEL` / `_EFFORT` | `gpt-6-sol` / medium | Spec reviews and loop/ship QA |
-| `CODEX_REVIEW_MODEL_RISKY` / `_EFFORT_RISKY` | `gpt-6-sol` / xhigh | A focus marks the diff as risky (auth, payments, schema…) |
+| `CODEX_REVIEW_MODEL` / `_EFFORT` | `gpt-6.1-sol` / medium | Spec reviews and loop/ship QA |
+| `CODEX_REVIEW_MODEL_RISKY` / `_EFFORT_RISKY` | `gpt-6.1-sol` / xhigh | A focus marks the diff as risky (auth, payments, schema…) |
 | `CODEX_REVIEW_MODEL_COMMIT` / `_EFFORT_COMMIT` | `gpt-6-luna` / high | The pre-commit hook only. Unset both to review commits on Sol. |
 | `CODEX_REVIEW_MODEL_CHEAP` / `_EFFORT_CHEAP` | `gpt-6-luna` / max | The weekly-budget downgrade |
 
@@ -178,6 +178,7 @@ Report-first pruning of low-value tests: tests that restate the code, copied fix
 
 ## Changelog
 
+- **0.11.1** (1 Oct 2026): `/ai:test-audit` Stage 4, consolidation with coverage measured before and after; Codex reviews on GPT-6.1 Sol; `--advisor fable` suggested for long cc-opus runs.
 - **0.11.0** (1 Oct 2026): docs layout: specs in `docs/specs/`, plans and run notes in `docs/tasks/`, shipped or dropped work in `docs/archive/`; `/ai:ship` archives what the branch finished and proposes the rest; session habits in the managed block.
 - **0.10.0** (28 Sept 2026): `breaker` agent, `/ai:preship break` and `all`; Stage 1 questions numbered with recommended answers.
 - **0.9.0** (27 Sept): `/ai:preship`; loop report order; AGENTS.md Lanes lines name agents, not models.

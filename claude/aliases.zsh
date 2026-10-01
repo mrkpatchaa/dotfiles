@@ -32,7 +32,7 @@ export CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false
 # main and subagents together and lock /effort). Agents without one inherit the session's level.
 
 alias cc-fable="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL=opus claude --model fable --effort high"      # no advisor: a Fable main only accepts a Fable advisor
-alias cc-opus="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL=opus claude --model 'opus[1m]' --effort high"  # 1M context (included on Max); quoted because zsh reads [1m] as a glob. --advisor opus by hand for high-stakes work only
+alias cc-opus="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL=opus claude --model 'opus[1m]' --effort high"  # 1M context (included on Max); quoted because zsh reads [1m] as a glob. for a long or high-stakes run add --advisor fable (or /advisor fable mid-session): Fable reads the session and weighs in before a plan, on a repeated error and before done, while Opus keeps building
 # Sonnet drives, Opus is consulted at decision points (before an approach, on a recurring error, before "done").
 # Counts toward the Max window; each consult re-reads the whole transcript uncached, so keep these sessions short.
 # Mid-session: /advisor off · /advisor opus. Stays off if DISABLE_TELEMETRY (or anything blocking feature flags) is set.
@@ -42,9 +42,9 @@ alias cc-sonnet-solo="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 CLAUDE_CODE_S
 # Codex review tiers (read by codex-review, so also by the commit hook, /ai:loop and /ai:ship). Plus quota is the scarce budget.
 # Ids from OpenAI's model list (22 Sep 2026: GPT-6 Sol and Luna on Plus, half the price of the 5.6 pair). Needs a Codex CLI that lists them
 # under /model — update Codex first. Astra is left out: OpenAI puts Sol at Astra-level reliability; set the risky tier to gpt-6-astra if you disagree.
-export CODEX_REVIEW_MODEL="gpt-6-sol"          # spec reviews and /ai:loop, /ai:ship QA
+export CODEX_REVIEW_MODEL="gpt-6.1-sol"        # spec reviews and /ai:loop, /ai:ship QA (6.1 since 1 Oct: better than 6 at the same price, cached input halved)
 export CODEX_REVIEW_EFFORT="medium"            # OpenAI's suggested start for Sol
-export CODEX_REVIEW_MODEL_RISKY="gpt-6-sol"    # a focus (auth, payments, schema…) keeps the model and raises the effort
+export CODEX_REVIEW_MODEL_RISKY="gpt-6.1-sol"  # a focus (auth, payments, schema…) keeps the model and raises the effort
 export CODEX_REVIEW_EFFORT_RISKY="xhigh"
 export CODEX_REVIEW_MODEL_COMMIT="gpt-6-luna"  # the pre-commit hook: small diffs, many calls. Unset both to review commits on Sol.
 export CODEX_REVIEW_EFFORT_COMMIT="high"       # max is Luna's best mode but slower; the hook has 540 s

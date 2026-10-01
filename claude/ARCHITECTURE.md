@@ -39,7 +39,7 @@ flowchart LR
   end
 
   subgraph ext["Outside Claude"]
-    CX["Codex CLI<br/>ChatGPT Plus · GPT-6 Sol / Luna"]
+    CX["Codex CLI<br/>ChatGPT Plus · GPT-6.1 Sol / GPT-6 Luna"]
     OC["OpenCode<br/>Go models (GRUNT_MODELS, REVIEW_FALLBACK_MODELS)<br/>+ Zen free models (OPENCODE_FREE_MODELS)"]
     JEV["TypeSafe Jev<br/>optional commit triage"]
   end
