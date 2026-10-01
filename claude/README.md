@@ -77,7 +77,7 @@ Tiers, set in `aliases.zsh` (update the Codex CLI so it knows the ids):
 
 ## Limits and fallbacks
 
-- **Review chain.** Codex → free OpenCode models → the paid Go models in `REVIEW_FALLBACK_MODELS` → exit 75, which tells `/ai:loop` and `/ai:ship` to use the Claude `reviewer` agent. On 75 the commit hook lets the commit through unreviewed, by design; only an explicit `VERDICT: BLOCK` stops a commit.
+- **Review chain.** Codex → free OpenCode models → the paid Go models in `REVIEW_FALLBACK_MODELS` → exit 75, which tells `/ai:loop` and `/ai:ship` to use the Claude `reviewer` agent. On 75 the commit hook runs the `reviewer` agent's instructions headless (`claude -p`, Opus at high, read-only tools, flagged same-vendor) when at least two minutes of the hook's 600 s are left; it lets the commit through unreviewed only when that fails too or `AI_HOOK_CLAUDE_FALLBACK=0`. Only an explicit `VERDICT: BLOCK` stops a commit. `AI_HOOK_CLAUDE_MODEL` / `_EFFORT` change the fallback's model.
 - **Watchdog.** `opencode run` retries a limited provider forever and prints nothing while it does (anomalyco/opencode #40330, #21960), so every lane runs under `run_lane` (`ai/bin/_common.sh`):
   - stderr is read every 2 s, and the lane is killed the moment it reports a hard limit;
   - a silent lane is killed after `AI_STALL_TIMEOUT` (300 s; Codex 600 s; `grunt-run` 600 s);
@@ -178,6 +178,7 @@ Report-first pruning of low-value tests: tests that restate the code, copied fix
 
 ## Changelog
 
+- **0.11.2** (1 Oct 2026): the commit hook falls back to a headless Claude review when Codex and OpenCode are unreachable.
 - **0.11.1** (1 Oct 2026): `/ai:test-audit` Stage 4, consolidation with coverage measured before and after; Codex reviews on GPT-6.1 Sol; `--advisor fable` suggested for long cc-opus runs.
 - **0.11.0** (1 Oct 2026): docs layout: specs in `docs/specs/`, plans and run notes in `docs/tasks/`, shipped or dropped work in `docs/archive/`; `/ai:ship` archives what the branch finished and proposes the rest; session habits in the managed block.
 - **0.10.0** (28 Sept 2026): `breaker` agent, `/ai:preship break` and `all`; Stage 1 questions numbered with recommended answers.
