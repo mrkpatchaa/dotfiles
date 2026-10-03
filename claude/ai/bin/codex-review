@@ -58,8 +58,10 @@ after_failure() {  # after_failure <lane> <rc> <out> <err> — record why the la
   elif [ "$rc" = 202 ]; then mark_limited "$lane" timeout; echo stalled
   else echo "codex-review: $lane failed (exit $rc, not a limit). stderr:" >&2; grep -E '^[^ +-]' "$err" | tail -c 1500 >&2; echo >&2; keep_stderr "$lane" "$err"
     if cli_rejected "$err"; then echo cli; return; fi   # the CLI itself refused the command: not the model's fault, don't skip it
+    if model_disabled "$err"; then mark_disabled "$lane"; echo "codex-review: $lane is not available to this account — skipped for a day; take it out of the model lists" >&2; echo disabled; return; fi
     is_free "$lane" && mark_limited "$lane" stalled   # a free period that ended: skip that model for 15 min
     echo error; fi; }
+first_finding() { awk '/VERDICT:/{f=1; next} f && /^[[:space:]]*([-*•]|[0-9]+[.)])[[:space:]]/{sub(/^[[:space:]]*([-*•]|[0-9]+[.)])[[:space:]]*/, ""); print; exit}' "$1" 2>/dev/null | cut -c1-160; }
 keep_stderr() { tail -c 8000 "$2" > "$STATE_DIR/$(printf '%s' "$1" | tr '/:' '__').stderr" 2>/dev/null; }   # full stderr of the last failure per lane, for `ai-limits log` readers
 verdict_of() { grep -m1 -o 'VERDICT: [A-Z ]*' "$1" 2>/dev/null | sed 's/VERDICT: //; s/ *$//'; }
 weekly_used() { "$_PY" "$_BIN/_limits.py" codex-usage --weekly --since "$(mtime "$STATE_DIR/cleared")" 2>/dev/null | tr -cd '0-9'; }   # 7-day window %, empty when unknown
@@ -134,7 +136,7 @@ else
     if [ "${CODEX_REVIEW_JSON:-1}" = "0" ]; then run_lane "codex-review: codex" "$last" "$err" codex exec "$@" -c 'approval_policy="never"' --sandbox read-only "$PROMPT"; rc=$?; cp "$last" "$out"; fi
     if [ $rc -eq 0 ] && [ -s "$last" ]; then
       m="${CM:-$(codex_model)}"; echo "REVIEWER: codex (${m:-default model}${downgraded:+, downgraded: 7-day window at ${WEEKLY}%})"; cat "$last"
-      a="$(weekly_used)"; log_review codex "$m" "$(verdict_of "$last")" ok "weekly ${WEEKLY:-?}% → ${a:-?}%${downgraded:+; asked for ${ASKED:-the config.toml model}}"; rm -f "$out" "$err" "$last"; exit 0
+      a="$(weekly_used)"; log_review codex "$m" "$(verdict_of "$last")" ok "weekly ${WEEKLY:-?}% → ${a:-?}%${downgraded:+; asked for ${ASKED:-the config.toml model}}; first: $(first_finding "$last")"; rm -f "$out" "$err" "$last"; exit 0
     fi
     [ $rc -eq 0 ] && rc=1   # exit 0 without a review is a failure
     why="$(after_failure codex "$rc" "$out" "$err")"; log_review codex "$CM" - "$why" "$(fail_note codex "$rc" "$why" "$out" "$err")"
@@ -157,8 +159,13 @@ if [ "${REVIEW_NO_OPENCODE:-0}" != "1" ] && ! cheap_lane_off && command -v openc
     out="$(mktemp)"; err="$(mktemp)"
     run_lane "codex-review: $m" "$out" "$err" env OPENCODE_PERMISSION='{"edit":"deny","bash":{"*":"deny","git diff*":"allow","git status*":"allow","git log*":"allow","git show*":"allow"}}' \
       opencode run --print-logs --model "$m#high" --auto "$PROMPT"; rc=$?   # opencode 2.x: variant rides on the model id
+    if [ $rc -ne 0 ] && [ $rc -lt 200 ] && variant_unavailable "$err"; then   # kimi-k3 has no `high` variant (1 Oct 2026): once more with the model's default
+      echo "codex-review: $m has no high variant — retrying without one" >&2; : > "$out"; : > "$err"
+      run_lane "codex-review: $m" "$out" "$err" env OPENCODE_PERMISSION='{"edit":"deny","bash":{"*":"deny","git diff*":"allow","git status*":"allow","git log*":"allow","git show*":"allow"}}' \
+        opencode run --print-logs --model "$m" --auto "$PROMPT"; rc=$?
+    fi
     if [ $rc -eq 0 ] && [ -s "$out" ]; then
-      echo "REVIEWER: $m ($(is_free "$m" && echo 'free, ')fallback — Codex unavailable)"; cat "$out"; log_review "$m" "$m" "$(verdict_of "$out")" ok fallback; rm -f "$out" "$err"; exit 0
+      echo "REVIEWER: $m ($(is_free "$m" && echo 'free, ')fallback — Codex unavailable)"; cat "$out"; log_review "$m" "$m" "$(verdict_of "$out")" ok "fallback; first: $(first_finding "$out")"; rm -f "$out" "$err"; exit 0
     fi
     [ $rc -eq 0 ] && rc=1
     why="$(after_failure "$m" "$rc" "$out" "$err")"; log_review "$m" "$m" - "$why" "$(fail_note "$m" "$rc" "$why" "$out" "$err")"

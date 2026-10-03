@@ -110,4 +110,9 @@ free_models() { local m
 # cli_rejected <err> — the installed CLI refused the command line itself (a flag removed in an upgrade): every model would fail the same way,
 # so callers stop trying models and say so instead of skipping them as if they were down.
 cli_rejected() { grep -Eiq 'unrecognized (flag|option|argument)|unknown (flag|option)|unexpected argument' "$1" 2>/dev/null; }
+# model_disabled <err> — the account has no access to this model (disabled in the OpenCode account, retired id): skip it for a day and say so,
+# instead of retrying it on every call (seen 1 and 3 Oct 2026: glm-5.3 "Model access is disabled", fledge-alpha "Model unavailable").
+model_disabled() { grep -Eiq 'model access is disabled|model unavailable|model not found|unknown model|no such model' "$1" 2>/dev/null; }
+variant_unavailable() { grep -Eiq 'variant unavailable' "$1" 2>/dev/null; }
+mark_disabled() { printf '%s\n%s\n%s\n' "$(( $(now) + 86400 ))" disabled "not available to this account — remove it from GRUNT_MODELS / REVIEW_FALLBACK_MODELS / OPENCODE_FREE_MODELS, or enable it in OpenCode" > "$(lane_key "$1")"; }
 is_free() { case " ${OPENCODE_FREE_MODELS:-} " in *" $1 "*) return 0 ;; esac; return 1; }

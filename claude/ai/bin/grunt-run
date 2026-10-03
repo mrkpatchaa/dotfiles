@@ -62,6 +62,7 @@ for m in $MODELS; do
   elif [ $rc -eq 201 ]; then mark_limited "$m" stalled
   elif [ $rc -eq 202 ]; then mark_limited "$m" timeout
   else echo "grunt-run: $m failed (exit $rc, not a limit). stderr:" >&2; grep -E '^[^ +-]' "$err" | tail -c 1500 >&2; echo >&2
+    if model_disabled "$err"; then mark_disabled "$m"; echo "grunt-run: $m is not available to this account — skipped for a day; take it out of the model lists" >&2; rm -f "$out" "$err"; continue; fi
     if cli_rejected "$err"; then echo "WORKER: none — opencode $(opencode --version 2>/dev/null) rejected the command line (see stderr above); grunt-run needs updating for it. Do this chunk yourself and say so in the report." >&2; rm -f "$out" "$err"; exit 75; fi
     is_free "$m" && mark_limited "$m" stalled   # free periods end without notice: a retired free model is skipped for 15 min instead of failing every call
   fi

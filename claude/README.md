@@ -184,6 +184,7 @@ Report-first pruning of low-value tests: tests that restate the code, copied fix
 
 ## Changelog
 
+- **0.12.2** (3 Oct 2026): from the first backpass runs (37 sessions each in assigame-next and snowlan) and the review log: Stage 2 of `/ai:loop` ends the turn before the build; the managed block says a gate counts only once it was seen finishing and a truncated read is not the whole file; a model the account doesn't have is skipped for a day instead of on every call; an OpenCode model without a `high` variant is retried without one; the review log keeps each review's first finding.
 - **0.12.1** (3 Oct 2026): the hook's executable bit, lost on 1 Oct when the file was rewritten through the Cowork mount, is restored; each repo's `.claude/settings.json` now calls it as `bash <path>` so a lost bit can't silence it again (`/doctor` showed "Permission denied" on every commit for two days).
 - **0.12.0** (3 Oct 2026): `ai-lane` and `AI_CHEAP_LANE` switch the cheap lane off (grunt-run exit 76, no OpenCode review fallback); `grunt` moves to Sonnet and does the work itself when the lane is off; the `review-status` mod (a band above the prompt for background lanes); the commit hook reviews `git diff HEAD` instead of the whole branch; subagent cap 5.
 - **0.11.4** (3 Oct 2026): `/ai:preship` group 9 names the protected quick tunnel for testing the local app from a real phone.
