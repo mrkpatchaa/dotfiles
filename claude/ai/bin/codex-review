@@ -65,7 +65,8 @@ verdict_of() { grep -m1 -o 'VERDICT: [A-Z ]*' "$1" 2>/dev/null | sed 's/VERDICT:
 weekly_used() { "$_PY" "$_BIN/_limits.py" codex-usage --weekly --since "$(mtime "$STATE_DIR/cleared")" 2>/dev/null | tr -cd '0-9'; }   # 7-day window %, empty when unknown
 REPO="$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")"
 # log_review <lane> <model> <verdict> <outcome> <note> — one tab-separated line per lane attempt in $STATE_DIR/reviews.log (`ai-limits log`)
-log_review() { printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%ss\t%s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$REPO" "$MODE" "$1" "${2:-default}" "${3:--}" "$4" "$(( $(now) - T0 ))" "$(printf '%s' "$5" | tr '\t\n' '  ' | cut -c1-220)" >> "$STATE_DIR/reviews.log"; }
+LANE_DETAIL="$MODE${FOCUS:+ · focus}"
+log_review() { case "$4" in ok) note_last codex-review "${2:-$1}" "VERDICT: ${3:--}" "$MODE" ;; none) note_last codex-review none "no reviewer answered" "$MODE" ;; esac; printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%ss\t%s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$REPO" "$MODE" "$1" "${2:-default}" "${3:--}" "$4" "$(( $(now) - T0 ))" "$(printf '%s' "$5" | tr '\t\n' '  ' | cut -c1-220)" >> "$STATE_DIR/reviews.log"; }
 fail_note() {  # fail_note <lane> <rc> <why> <out> <err> — for the log: the reset time and the lane's words, or the last useful stderr line
   local t; if [ "$3" = limit ]; then echo "back $(lane_back "$1"); $(sed -n '3p' "$(lane_key "$1")" | sed -E 's/^.*"message": ?"//')"; return; fi
   t="$(grep -v ' working, ' "$5" 2>/dev/null | grep -i -m1 -A2 'error' | tr '\n' ' ' | sed 's/ *$//')"; [ -n "$t" ] || t="$(grep -E '^[^ +-]' "$5" 2>/dev/null | tail -1)"
@@ -144,7 +145,8 @@ fi
 # 2) OpenCode Go reviewer (different vendor, read-only: edits and shell denied except git read commands).
 # `opencode run` retries a limited provider forever and prints nothing while it does (anomalyco/opencode #40330, #21960), so:
 # --print-logs puts the provider's error on stderr where the watchdog reads it, and silence past AI_STALL_TIMEOUT kills the lane.
-if [ "${REVIEW_NO_OPENCODE:-0}" != "1" ] && command -v opencode >/dev/null 2>&1; then
+if cheap_lane_off; then echo "codex-review: the cheap lane is off here (ai-lane) — no OpenCode fallback" >&2; fi
+if [ "${REVIEW_NO_OPENCODE:-0}" != "1" ] && ! cheap_lane_off && command -v opencode >/dev/null 2>&1; then
   go_limited=0
   # Free models (OPENCODE_FREE_MODELS) are asked before the paid fallbacks; REVIEW_FREE=0 keeps them out of reviews.
   FB=""; FREE=""; [ "${REVIEW_FREE:-1}" = 0 ] || FREE="$(free_models)"

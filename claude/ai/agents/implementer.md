@@ -10,7 +10,7 @@ Read the spec you were given in full. If it has open questions, stop and surface
 
 Mechanical, precisely specified work — renames across files, boilerplate, test scaffolds, fixtures, generated types — goes to the cheap lane. Write a self-contained brief (goal, files, the AGENTS.md rules that apply, and a verifiable "done means"; the worker has none of your context) and run:
   grunt-run --dir "$PWD" "<brief>"
-The first output line names the model that did the work. If it exits with code 75, every cheap lane is limited: do that chunk yourself and say so in your report. After any cheap-lane chunk, re-run the tests you touched; never trust the worker's self-report.
+The first output line names the model that did the work. If it exits with code 75 (every cheap lane is limited) or 76 (the cheap lane is off here, `ai-lane`), do that chunk yourself and say so in your report. After any cheap-lane chunk, re-run the tests you touched; never trust the worker's self-report.
 
 When `grunt-run --free-status` exits 0, a free model is first in the cheap lane and a chunk costs nothing: send it more than the rote parts — first drafts of code the spec pins down (a function with its signature and the tests it must pass), tests that meet the AGENTS.md `Tests:` rule, docs and comments, and surveys or log reading you would otherwise do yourself. You still read what comes back and run the gates, and the trust rule below does not change.
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# PreToolUse hook (matcher: Bash). Runs one independent review before `git commit` and blocks the commit on VERDICT: BLOCK.
+# PreToolUse hook (matcher: Bash). Runs one independent review of the uncommitted changes (git diff HEAD) before `git commit` and blocks
+# the commit on VERDICT: BLOCK. The whole branch against its base is /ai:ship's review, not this one (0.12.0; before, every commit on a
+# feature branch re-reviewed the branch).
 # When Codex and OpenCode are both unreachable (codex-review exit 75), the Claude `reviewer` agent's instructions run headless
 # (`claude -p`, read-only tools, flagged same-vendor) if enough of the hook's time is left; AI_HOOK_CLAUDE_FALLBACK=0 turns that off.
 # It never blocks when no reviewer at all answers — it warns and lets the commit through.
@@ -62,7 +64,7 @@ errf="$(mktemp)"; T0="$(now)"
 # Commit reviews are small and frequent: CODEX_REVIEW_MODEL_COMMIT / _EFFORT_COMMIT (aliases.zsh) replace the ordinary tier here only.
 # A focus from jev-triage raises the effort (CODEX_REVIEW_EFFORT_RISKY) but keeps the commit model: an Astra/Sol xhigh review of a big diff
 # outlasts this hook (399 s on 23 Sep 2026, killed at the 400 s lane timeout, 7% of the Plus week for no review). CODEX_REVIEW_MODEL_COMMIT_RISKY overrides.
-review="$(CODEX_REVIEW_MODEL="${CODEX_REVIEW_MODEL_COMMIT:-${CODEX_REVIEW_MODEL:-}}" CODEX_REVIEW_EFFORT="${CODEX_REVIEW_EFFORT_COMMIT:-${CODEX_REVIEW_EFFORT:-}}" CODEX_REVIEW_MODEL_RISKY="${CODEX_REVIEW_MODEL_COMMIT_RISKY:-${CODEX_REVIEW_MODEL_COMMIT:-${CODEX_REVIEW_MODEL_RISKY:-}}}" REVIEW_BUDGET="${AI_HOOK_REVIEW_BUDGET:-540}" AI_LANE_TIMEOUT="${AI_HOOK_LANE_TIMEOUT:-400}" AI_STALL_TIMEOUT="${AI_HOOK_STALL_TIMEOUT:-180}" CODEX_STALL_TIMEOUT="${AI_HOOK_CODEX_STALL_TIMEOUT:-300}" "$BIN/codex-review" diff "" "$focus" 2>"$errf")"; rc=$?
+review="$(CODEX_REVIEW_MODEL="${CODEX_REVIEW_MODEL_COMMIT:-${CODEX_REVIEW_MODEL:-}}" CODEX_REVIEW_EFFORT="${CODEX_REVIEW_EFFORT_COMMIT:-${CODEX_REVIEW_EFFORT:-}}" CODEX_REVIEW_MODEL_RISKY="${CODEX_REVIEW_MODEL_COMMIT_RISKY:-${CODEX_REVIEW_MODEL_COMMIT:-${CODEX_REVIEW_MODEL_RISKY:-}}}" REVIEW_BUDGET="${AI_HOOK_REVIEW_BUDGET:-540}" AI_LANE_TIMEOUT="${AI_HOOK_LANE_TIMEOUT:-400}" AI_STALL_TIMEOUT="${AI_HOOK_STALL_TIMEOUT:-180}" CODEX_STALL_TIMEOUT="${AI_HOOK_CODEX_STALL_TIMEOUT:-300}" "$BIN/codex-review" diff HEAD "$focus" 2>"$errf")"; rc=$?
 case $rc in
   0) ;;
   75) why="$(grep -m1 '^REVIEWER: none' "$errf" | sed 's/^REVIEWER: none — //; s/ Delegate this review.*//')"

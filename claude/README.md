@@ -22,8 +22,10 @@ The marketplace is a local directory, so the plugin loads in place: edit anythin
 | `verifier` | Runs the feature and adds edge-case tests. Opus, effort high. |
 | `reviewer` | Last-resort read-only review when Codex and OpenCode are both unavailable. Opus, effort high. |
 | `breaker` | Tries to break the running app. Opus, effort high, no Write/Edit. |
-| `grunt` | Relays rote work to the cheap lane. Haiku. |
-| `ai/bin/grunt-run` | Runs a brief on the cheap OpenCode lane (free models first). |
+| `grunt` | Mechanical work: through the cheap lane while it is on, itself on Sonnet (effort medium) when the lane is off or every cheap model is limited. |
+| `ai/bin/grunt-run` | Runs a brief on the cheap OpenCode lane (free models first); exit 76 when the lane is off. |
+| `ai/bin/ai-lane` | Shows and switches the cheap lane: `ai-lane off` (this clone), `ai-lane off --global`, `ai-lane on`, `ai-lane free off`. |
+| `ai/hooks/review-status.tsx` | A mod: a band above the prompt while a `codex-review` or `grunt-run` lane runs in the background, and the last verdict for ten minutes after. |
 | `ai/bin/codex-review` | Codex review with limit-aware fallbacks. |
 | `ai/bin/jev-triage` | Optional commit triage through TypeSafe's Jev. |
 | `ai/bin/ai-limits` | Which lanes are limited, until when, and the review log. |
@@ -33,7 +35,7 @@ The marketplace is a local directory, so the plugin loads in place: edit anythin
 
 ## Aliases, models and effort
 
-`.zshrc` sources `aliases.zsh`. Every alias caps subagents at 2 concurrent and depth 1, and pins its launch effort with `--effort` (session only; beats a level saved with `/effort` + Enter; `/effort` still changes it mid-session).
+`.zshrc` sources `aliases.zsh`. Every alias caps subagents at 5 concurrent (the five `/ai:preship` checkers in one wave; the loop itself uses one at a time) and depth 1, and pins its launch effort with `--effort` (session only; beats a level saved with `/effort` + Enter; `/effort` still changes it mid-session).
 
 | Alias | Main | Subagents |
 | --- | --- | --- |
@@ -93,6 +95,8 @@ Tiers, set in `aliases.zsh` (update the Codex CLI so it knows the ids):
 
 ## The cheap lane and free models
 
+- **Switching it off.** `ai-lane off` in a clone (`git config ai-loop.cheaplane off`), `ai-lane off --global` for every clone, or `export AI_CHEAP_LANE=off` for one shell; `ai-lane` shows what applies and `ai-lane on` reverts. Off means: `grunt-run` exits 76 at once, `codex-review` goes Codex → exit 75 with no OpenCode fallback, and the Claude agents do the work themselves (`grunt` on Sonnet at effort medium, the `implementer` on Opus for the chunks it would have sent out). Nothing to reload: the scripts read the switch at every call. Use it when a repo must not leave the Anthropic/OpenAI vendors, when OpenCode is flaky, or when you would rather spend Max quota than wait.
+- **The band.** While a lane runs in the background, the plugin's `review-status` mod draws one line above the prompt per lane (`⟳ codex-review · codex (spec) · 4m12s · snowlan`), and the last result for ten minutes after (`✓ codex-review · gpt-6.1-sol · VERDICT: SHIP · 2m ago`). It reads `~/.local/state/ai-loop/active/*.json` and `last.json`, which `run_lane` and the scripts write; nothing else. Claude Code 2.1.287 or later; `/reload-plugins` after updating.
 - **Order.** `grunt-run` tries `OPENCODE_FREE_MODELS` first, then `GRUNT_MODELS`, and its first line says which one worked (`WORKER: <model> (free)`). It appends a closing quality-pass instruction for the build agent (`GRUNT_QA_PASS=0` turns it off). Keep that kind of line out of prompts for frontier models.
 - **Free models.** OpenCode Zen regularly runs models for free: ids end in `-free`, listed at opencode.ai/docs/zen or under `/models` in the OpenCode TUI. Put the ones you want in `OPENCODE_FREE_MODELS` (commented example in `aliases.zsh`, next to a note on NVIDIA's free endpoints, which are for dev and eval only).
   - `codex-review` asks them after Codex and before the paid Go fallbacks, and the `REVIEWER:` line says `free`. `REVIEW_FREE=0` keeps them out of reviews.
@@ -180,6 +184,7 @@ Report-first pruning of low-value tests: tests that restate the code, copied fix
 
 ## Changelog
 
+- **0.12.0** (3 Oct 2026): `ai-lane` and `AI_CHEAP_LANE` switch the cheap lane off (grunt-run exit 76, no OpenCode review fallback); `grunt` moves to Sonnet and does the work itself when the lane is off; the `review-status` mod (a band above the prompt for background lanes); the commit hook reviews `git diff HEAD` instead of the whole branch; subagent cap 5.
 - **0.11.4** (3 Oct 2026): `/ai:preship` group 9 names the protected quick tunnel for testing the local app from a real phone.
 - **0.11.3** (1 Oct 2026): prompt audit — attributions moved from `/ai:preship` and `/ai:test-audit` into this README; `codex-review spec` needs the spec path (the old `SPEC.md` default predates `docs/specs/`).
 - **0.11.2** (1 Oct 2026): the commit hook falls back to a headless Claude review when Codex and OpenCode are unreachable.

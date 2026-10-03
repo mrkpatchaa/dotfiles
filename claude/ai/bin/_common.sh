@@ -1,5 +1,5 @@
 # shared by grunt-run / codex-review / ai-limits (bash 3.2 compatible — macOS default bash)
-STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/ai-loop"; mkdir -p "$STATE_DIR"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/ai-loop"; mkdir -p "$STATE_DIR/active"
 _BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _PY="$(command -v python3 2>/dev/null || echo /usr/bin/python3)"
 COOLDOWN="${AI_LIMIT_COOLDOWN:-1800}"        # skip a limited lane this long ONLY when it did not say when it resets (30 min)
@@ -49,6 +49,22 @@ mark_limited() { local lane="$1" kind="${2:-limit}" until="" how why="" n; [ $# 
   [ "$until" -gt $(( n + MAX_SKIP )) ] && until=$(( n + MAX_SKIP ))
   printf '%s\n%s\n%s\n' "$until" "$how" "$why" > "$(lane_key "$lane")"; }
 
+# The cheap lane (OpenCode) can be switched off: AI_CHEAP_LANE=off for a shell, `git config ai-loop.cheaplane off` for a clone,
+# `git config --global ai-loop.cheaplane off` everywhere (bin/ai-lane sets and shows it). grunt-run then exits 76 and codex-review
+# skips its OpenCode fallbacks, so the Claude agents do the work themselves (grunt on Sonnet, the implementer on Opus).
+cheap_lane_off() { [ "${AI_CHEAP_LANE:-}" = off ] && return 0; [ "$(git ${1:+-C "$1"} config --get ai-loop.cheaplane 2>/dev/null)" = off ]; }
+
+# Status files for the plugin's review-status band (hooks/review-status.tsx): active/<pid>.json while run_lane runs a lane,
+# last.json when a tool ends. LANE_DETAIL (set by the caller: the review mode, the grunt agent) rides along.
+_json_str() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' '; }
+lane_status() { printf '{"tool":"%s","lane":"%s","detail":"%s","repo":"%s","started":%s,"pid":%s}\n' \
+  "$(_json_str "${1%%:*}")" "$(_json_str "${1#*: }")" "$(_json_str "${LANE_DETAIL:-}")" "$(_json_str "$(basename "$PWD")")" "$(now)" "$$" > "$STATE_DIR/active/$$.json" 2>/dev/null; }
+lane_status_clear() { rm -f "$STATE_DIR/active/$$.json"; }
+trap 'lane_status_clear' EXIT
+note_last() {  # note_last <tool> <lane> <result> <detail>
+  printf '{"tool":"%s","lane":"%s","result":"%s","detail":"%s","repo":"%s","finished":%s}\n' \
+  "$(_json_str "$1")" "$(_json_str "$2")" "$(_json_str "$3")" "$(_json_str "$4")" "$(_json_str "$(basename "$PWD")")" "$(now)" > "$STATE_DIR/last.json" 2>/dev/null; }
+
 _tree() { local c; for c in $(pgrep -P "$1" 2>/dev/null); do _tree "$c"; done; echo "$1"; }
 kill_tree() { local pids; pids="$(_tree "$1")"; kill -TERM $pids 2>/dev/null; sleep 1; kill -KILL $pids 2>/dev/null; wait "$1" 2>/dev/null; return 0; }
 _size() { local a b; a="$(wc -c < "$1" 2>/dev/null | tr -d ' ')"; b="$(wc -c < "$2" 2>/dev/null | tr -d ' ')"; echo $(( ${a:-0} + ${b:-0} )); }
@@ -69,7 +85,8 @@ failed_on_limit() { grep -E '^[^ +-]' "$2" 2>/dev/null | grep -Eiq "$LIMIT_RE" &
 # run_lane <label> <out> <err> <command...>
 # Runs the command with a watchdog. Returns the command's own exit code, or: 200 = it reported a hard limit while running (killed at once),
 # 201 = no output for STALL_TIMEOUT (killed), 202 = still running after LANE_TIMEOUT (killed). Prints a heartbeat on stderr every minute.
-run_lane() { local label="$1" out="$2" err="$3"; shift 3
+run_lane() { local rc; lane_status "$1"; _run_lane "$@"; rc=$?; lane_status_clear; return $rc; }
+_run_lane() { local label="$1" out="$2" err="$3"; shift 3
   "$@" >"$out" 2>"$err" </dev/null &
   local pid=$! start n size prev=-1 changed beat; start="$(now)"; changed="$start"; beat="$start"
   while kill -0 "$pid" 2>/dev/null; do

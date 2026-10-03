@@ -3,7 +3,7 @@ export PATH="$HOME/devs/dotfiles/claude/ai/bin:$PATH"   # grunt-run, codex-revie
 
 # Subagent caps (docs: sub-agents; defaults are 20 concurrent, depth 3). Depth 1 = subagents can't spawn subagents.
 # /ai:loop only needs main → implementer / grunt; grunt-run and codex-review are Bash calls, not subagents. Nesting agents? Set depth 2.
-_cc_caps='CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=2 CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1'
+_cc_caps='CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=5 CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1'   # 5 since 0.12.0: /ai:preship sends five checkers at once; the loop runs one agent at a time
 
 # Next-prompt suggestions (grey text after each reply) are a background request that re-reads the whole context from cache.
 # Cheap per call per the docs, but it is one extra request per turn on 1M-context sessions. Delete this line if you use Tab to accept them.
@@ -66,6 +66,9 @@ export CODEX_REVIEW_EFFORT_CHEAP="max"         # the weekly-budget downgrade tie
 # https://integrate.api.nvidia.com/v1, key in NVIDIA_API_KEY. Free tier = development/testing/evaluation only, per-model rate limits unpublished,
 # data terms not checked: treat like the training free models (opt-out repos stay out). To try: add the provider in OpenCode, `opencode models`
 # to get the exact ids, then append e.g. the Kimi K3 and GLM 5.3 ids to OPENCODE_FREE_MODELS (is_free matches the id as written).
+
+# Cheap lane off (0.12.0): `ai-lane off` per clone, `ai-lane off --global`, or for one shell `export AI_CHEAP_LANE=off` — grunt does the work
+# itself on Sonnet, codex-review has no OpenCode fallback. `ai-lane` shows what applies.
 
 # Jev triage key: keep it out of every repo. jev-triage reads $TYPESAFE_API_KEY, else this file (chmod 600):
 #   mkdir -p ~/.config/typesafe && pbpaste > ~/.config/typesafe/api-key && chmod 600 ~/.config/typesafe/api-key

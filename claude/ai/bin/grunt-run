@@ -8,7 +8,8 @@
 #        GRUNT_TIMEOUT=2400        seconds for one model before it is killed     GRUNT_STALL_TIMEOUT=600  seconds of total silence before it is killed
 #        AI_LIMIT_COOLDOWN=1800    skip time for a limited model that did not say when it resets (when it does say, that time is used)
 #        GRUNT_QA_PASS=0           don't append the closing quality-pass instruction (build agent only; on by default)
-# Exit:  0 = done (first output line: WORKER: <model>)   75 = every lane limited/failing — do it yourself   64 = usage
+#        AI_CHEAP_LANE=off         the cheap lane is off for this shell (per clone: git config ai-loop.cheaplane off; `ai-lane` shows and sets it)
+# Exit:  0 = done (first output line: WORKER: <model>)   75 = every lane limited/failing — do it yourself   76 = the cheap lane is off here — do it yourself   64 = usage
 set -u
 . "$(cd "$(dirname "$0")" && pwd)/_common.sh"
 LANE_TIMEOUT="${GRUNT_TIMEOUT:-2400}"; STALL_TIMEOUT="${GRUNT_STALL_TIMEOUT:-600}"   # build work may sit in a long test run, so more patience than a review
@@ -25,6 +26,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -z "$DIR" ] || cd "$DIR" || { echo "grunt-run: cannot cd to $DIR" >&2; exit 64; }   # opencode 2.x has no --dir: run from the directory instead
+if cheap_lane_off "$DIR"; then
+  [ "$STATUS" = 1 ] && { echo "free: none (the cheap lane is off here — ai-lane)"; exit 1; }
+  echo "WORKER: none — the cheap lane is off here (ai-lane shows why: AI_CHEAP_LANE or git config ai-loop.cheaplane). Do this chunk yourself and say so in the report." >&2; exit 76
+fi
+LANE_DETAIL="$AGENT"
 FREE="$(free_models "$DIR")"
 if [ "$STATUS" = 1 ]; then
   if [ -n "$FREE" ] && command -v opencode >/dev/null 2>&1; then echo "free: $FREE"; exit 0; fi
@@ -48,7 +54,7 @@ for m in $MODELS; do
   out="$(mktemp)"; err="$(mktemp)"
   # --print-logs: `opencode run` retries a limited provider forever in silence; the logs on stderr are where the watchdog sees the limit.
   run_lane "grunt-run: $m" "$out" "$err" opencode run --print-logs --agent "$AGENT" --model "$m${VARIANT:+#$VARIANT}" --auto "$BRIEF"; rc=$?   # opencode 2.x: variant rides on the model id
-  if [ $rc -eq 0 ]; then if is_free "$m"; then echo "WORKER: $m (free)"; else echo "WORKER: $m"; fi; cat "$out"; rm -f "$out" "$err"; exit 0; fi
+  if [ $rc -eq 0 ]; then if is_free "$m"; then echo "WORKER: $m (free)"; else echo "WORKER: $m"; fi; note_last grunt-run "$m" done "$AGENT"; cat "$out"; rm -f "$out" "$err"; exit 0; fi
   if [ $rc -eq 200 ] || { [ $rc -lt 200 ] && failed_on_limit "$out" "$err"; }; then
     mark_limited "$m" limit "$err" "$out"; echo "grunt-run: $m is at its limit — back $(lane_back "$m"). Trying the next model" >&2
     if [ "$(provider_of "$m")" = opencode-go ]; then go_limited=$(( go_limited + 1 ))   # one exhausted Go model can block the subscription (anomalyco/opencode #49014)
@@ -62,5 +68,6 @@ for m in $MODELS; do
   rm -f "$out" "$err"
 done
 back=""; recently_limited opencode-go && back=" opencode-go back $(lane_back opencode-go)."
+note_last grunt-run none "no lane answered" "$AGENT"
 echo "WORKER: none — every OpenCode lane is limited or failing ($MODELS).$back Do this chunk yourself and say so in the report." >&2
 exit 75

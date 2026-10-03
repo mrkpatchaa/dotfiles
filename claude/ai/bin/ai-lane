@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# ai-lane — show or switch the cheap lane (OpenCode through grunt-run, and codex-review's OpenCode fallbacks).
+# Usage: ai-lane                      what applies here: the switch, where it is set, the free models, the limited lanes
+#        ai-lane off [--global]       no OpenCode for this clone (--global: for every clone); grunt does the work itself on Sonnet
+#        ai-lane on  [--global]       back to the cheap lane (removes the git config; AI_CHEAP_LANE in the shell still wins)
+#        ai-lane free off|on [--global]   only the free models (git config ai-loop.freelane)
+# For one shell only: export AI_CHEAP_LANE=off (unset it to go back). The plugin reads the switch at every call; nothing to reload.
+set -u
+. "$(cd "$(dirname "$0")" && pwd)/_common.sh"
+scope=""; case " $* " in *" --global "*) scope="--global" ;; esac
+set -- $(printf '%s\n' "$@" | grep -v -- '--global')
+case "${1:-status}" in
+  off) git config $scope ai-loop.cheaplane off && echo "cheap lane off${scope:+ (global)}: grunt-run exits 76, codex-review skips OpenCode; the Claude agents do the work themselves" ;;
+  on)  git config $scope --unset ai-loop.cheaplane 2>/dev/null; echo "cheap lane on${scope:+ (global)}${AI_CHEAP_LANE:+ — but AI_CHEAP_LANE=$AI_CHEAP_LANE is set in this shell}" ;;
+  free) case "${2:-}" in
+          off) git config $scope ai-loop.freelane off && echo "free models off${scope:+ (global)}" ;;
+          on)  git config $scope --unset ai-loop.freelane 2>/dev/null; echo "free models on${scope:+ (global)}" ;;
+          *) echo "usage: ai-lane free off|on [--global]" >&2; exit 64 ;;
+        esac ;;
+  status|"")
+    if [ "${AI_CHEAP_LANE:-}" = off ]; then echo "cheap lane: off (AI_CHEAP_LANE=off in this shell)"
+    elif [ "$(git config --local --get ai-loop.cheaplane 2>/dev/null)" = off ]; then echo "cheap lane: off (git config ai-loop.cheaplane, this clone)"
+    elif [ "$(git config --global --get ai-loop.cheaplane 2>/dev/null)" = off ]; then echo "cheap lane: off (git config --global ai-loop.cheaplane)"
+    else echo "cheap lane: on (OpenCode through grunt-run; codex-review falls back to OpenCode)"; fi
+    f="$(free_models)"; if [ -n "$f" ]; then echo "free models: $f"; elif [ -n "${OPENCODE_FREE_MODELS:-}" ]; then echo "free models: none usable (listed: $OPENCODE_FREE_MODELS; opted out here, or limited)"; else echo "free models: none listed (OPENCODE_FREE_MODELS)"; fi
+    command -v opencode >/dev/null 2>&1 || echo "opencode: not on PATH"
+    for l in codex opencode-go; do recently_limited "$l" && echo "$l: limited, back $(lane_back "$l")"; done
+    echo "models: GRUNT_MODELS=${GRUNT_MODELS:-default} · REVIEW_FALLBACK_MODELS=${REVIEW_FALLBACK_MODELS:-default}" ;;
+  -h|--help) sed -n '2,7p' "$0" ;;
+  *) echo "usage: ai-lane [off|on|free off|free on] [--global]" >&2; exit 64 ;;
+esac
