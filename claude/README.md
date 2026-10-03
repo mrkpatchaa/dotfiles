@@ -142,7 +142,7 @@ Adapted from @Voxyz_ai's 20-point pre-launch list (26 Sept 2026) and 16 break qu
   - Security: keys in the bundle or history, direct API calls past RLS, a tampered price or role, rate limits, stored XSS.
   - Data: 10k rows, long emoji and diacritic names, email case duplicates, empty forms.
   - Flows under stress: double submit, webhook replay, Back mid-form, offline save, a 50 MB upload.
-  - Environment: 200 % zoom, WebKit, other time zones.
+  - Environment: 200 % zoom (a real phone through a protected quick tunnel, `cloudflared tunnel --url … --allowed-mail …`), WebKit, other time zones.
 - **Breaker rules.** Local or test environment only, two test accounts, payments in test mode, AI mocked or capped, test data removed afterwards; a breaker stops if it finds production keys.
   - Critical items, and fixes touching auth, money or data, go through `/ai:loop`, not the one-pass fixer.
   - All four run at high; raise `breaker.md` to `xhigh` before a payments launch.
@@ -180,6 +180,7 @@ Report-first pruning of low-value tests: tests that restate the code, copied fix
 
 ## Changelog
 
+- **0.11.4** (3 Oct 2026): `/ai:preship` group 9 names the protected quick tunnel for testing the local app from a real phone.
 - **0.11.3** (1 Oct 2026): prompt audit — attributions moved from `/ai:preship` and `/ai:test-audit` into this README; `codex-review spec` needs the spec path (the old `SPEC.md` default predates `docs/specs/`).
 - **0.11.2** (1 Oct 2026): the commit hook falls back to a headless Claude review when Codex and OpenCode are unreachable.
 - **0.11.1** (1 Oct 2026): `/ai:test-audit` Stage 4, consolidation with coverage measured before and after; Codex reviews on GPT-6.1 Sol; `--advisor fable` suggested for long cc-opus runs.
