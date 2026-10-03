@@ -184,6 +184,7 @@ Report-first pruning of low-value tests: tests that restate the code, copied fix
 
 ## Changelog
 
+- **0.12.1** (3 Oct 2026): the hook's executable bit, lost on 1 Oct when the file was rewritten through the Cowork mount, is restored; each repo's `.claude/settings.json` now calls it as `bash <path>` so a lost bit can't silence it again (`/doctor` showed "Permission denied" on every commit for two days).
 - **0.12.0** (3 Oct 2026): `ai-lane` and `AI_CHEAP_LANE` switch the cheap lane off (grunt-run exit 76, no OpenCode review fallback); `grunt` moves to Sonnet and does the work itself when the lane is off; the `review-status` mod (a band above the prompt for background lanes); the commit hook reviews `git diff HEAD` instead of the whole branch; subagent cap 5.
 - **0.11.4** (3 Oct 2026): `/ai:preship` group 9 names the protected quick tunnel for testing the local app from a real phone.
 - **0.11.3** (1 Oct 2026): prompt audit — attributions moved from `/ai:preship` and `/ai:test-audit` into this README; `codex-review spec` needs the spec path (the old `SPEC.md` default predates `docs/specs/`).
