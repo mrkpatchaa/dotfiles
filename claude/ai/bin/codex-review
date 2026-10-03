@@ -56,13 +56,14 @@ after_failure() {  # after_failure <lane> <rc> <out> <err> — record why the la
     echo "codex-review: $lane is at its limit — back $(lane_back "$lane")$([ "$(lane_how "$lane")" = guessed ] && echo ' (no reset time given; that is the default re-probe delay)')" >&2; echo limit
   elif [ "$rc" = 201 ]; then mark_limited "$lane" stalled; echo stalled
   elif [ "$rc" = 202 ]; then mark_limited "$lane" timeout; echo stalled
-  else echo "codex-review: $lane failed (exit $rc, not a limit). stderr:" >&2; grep -E '^[^ +-]' "$err" | tail -c 1500 >&2; echo >&2; keep_stderr "$lane" "$err"
+  else echo "codex-review: $lane failed (exit $rc, not a limit). stderr:" >&2; grep -E '^[^ +-]' "$err" | tail -c 1500 >&2; echo >&2; keep_stderr "$lane" "$err" "$out"
+    [ "$lane" = codex ] && grep -E '"type":"(error|turn\.failed)"' "$out" 2>/dev/null | tail -c 600 >&2
     if cli_rejected "$err"; then echo cli; return; fi   # the CLI itself refused the command: not the model's fault, don't skip it
     if model_disabled "$err"; then mark_disabled "$lane"; echo "codex-review: $lane is not available to this account — skipped for a day; take it out of the model lists" >&2; echo disabled; return; fi
     is_free "$lane" && mark_limited "$lane" stalled   # a free period that ended: skip that model for 15 min
     echo error; fi; }
 first_finding() { awk '/VERDICT:/{f=1; next} f && /^[[:space:]]*([-*•]|[0-9]+[.)])[[:space:]]/{sub(/^[[:space:]]*([-*•]|[0-9]+[.)])[[:space:]]*/, ""); print; exit}' "$1" 2>/dev/null | cut -c1-160; }
-keep_stderr() { tail -c 8000 "$2" > "$STATE_DIR/$(printf '%s' "$1" | tr '/:' '__').stderr" 2>/dev/null; }   # full stderr of the last failure per lane, for `ai-limits log` readers
+keep_stderr() { tail -c 8000 "$2" > "$STATE_DIR/$(printf '%s' "$1" | tr '/:' '__').stderr" 2>/dev/null; [ -n "${3:-}" ] && tail -c 8000 "$3" > "$STATE_DIR/$(printf '%s' "$1" | tr '/:' '__').stdout" 2>/dev/null; }   # last failure per lane: stderr, and stdout (the --json error events) when given
 verdict_of() { grep -m1 -o 'VERDICT: [A-Z ]*' "$1" 2>/dev/null | sed 's/VERDICT: //; s/ *$//'; }
 weekly_used() { "$_PY" "$_BIN/_limits.py" codex-usage --weekly --since "$(mtime "$STATE_DIR/cleared")" 2>/dev/null | tr -cd '0-9'; }   # 7-day window %, empty when unknown
 REPO="$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")"
