@@ -92,8 +92,16 @@ alias weather='curl -s "wttr.in/?format=3"'
 # ---------------------------------------------------------------------------
 
 # Map Up and Down arrows to search history based on what you already typed
-bindkey '^[[A' history-search-backward
-bindkey '^[[B' history-search-forward
+# (history-search-* only matches the first word; *-line-or-beginning-search
+# matches everything left of the cursor, like readline's history-search-*)
+autoload -U up-line-or-beginning-search down-line-or-beginning-search
+zle -N up-line-or-beginning-search
+zle -N down-line-or-beginning-search
+bindkey '^[[A' up-line-or-beginning-search
+bindkey '^[[B' down-line-or-beginning-search
+# Same keys when the terminal is in application cursor mode
+bindkey '^[OA' up-line-or-beginning-search
+bindkey '^[OB' down-line-or-beginning-search
 
 # Initialize the advanced completion system
 autoload -Uz compinit && compinit
