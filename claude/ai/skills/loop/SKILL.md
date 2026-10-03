@@ -25,6 +25,6 @@ For anything touching auth, payments, schemas or data, pass a focus: `codex-revi
 
 Stage 5 — Fix loop, at most two rounds, back through the `implementer` with the findings as its brief, then re-run Stage 4. On a second BLOCK, stop and show me why instead of retrying.
 
-Gotchas: if QA found a mistake that will recur in that folder (not a one-off bug), propose one line for the nearest nested `AGENTS.md`, as a fact with the check that catches it. Show it to me; add it only on my yes. A folder getting its first gotchas file also gets a one-line `CLAUDE.md` containing `@AGENTS.md`, because Claude Code does not read a nested `AGENTS.md` in a repo that has a root `CLAUDE.md`.
+Gotchas: if QA found a mistake that will recur in that folder (not a one-off bug), propose one line for the nearest nested `AGENTS.md`, as a fact with the check that catches it. Show it to me; add it only on my yes. Claude Code reads a nested `AGENTS.md` on its own when it opens a file in that folder (since 2.1.277), so the folder needs no `CLAUDE.md` shim; the one-line `CLAUDE.md` files already there can stay.
 
 Never merge. Report, in this order: what needs a decision or action from me; files changed; both verdicts with the name of the reviewer that produced each; the verify result (or why it was skipped); what was checked by running it versus only read, and what could not be checked; which chunks went to the cheap lane and on which model; then one merge risk — the concrete thing that could still go wrong if this merged, and the check that would settle it.
