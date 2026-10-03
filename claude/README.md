@@ -142,8 +142,8 @@ Adapted from @Voxyz_ai's 20-point pre-launch list (26 Sept 2026) and 16 break qu
   - Launch basics.
 
   They use the installed `agent-browser` and impeccable skills. The result is one table by severity; after your yes, one writer fixes and takes before/after screenshots.
-- **Breakers (groups 6–9).** Four `breaker` agents try to break:
-  - Security: keys in the bundle or history, direct API calls past RLS, a tampered price or role, rate limits, stored XSS.
+- **Breakers (groups 6–9).** Four `breaker` agents check that the app's controls hold:
+  - Access rules and secrets: no key in the bundle or history, direct API calls refused by RLS, a modified price or role rejected, rate limits present, scripts in user content rendered inert.
   - Data: 10k rows, long emoji and diacritic names, email case duplicates, empty forms.
   - Flows under stress: double submit, webhook replay, Back mid-form, offline save, a 50 MB upload.
   - Environment: 200 % zoom (a real phone through a protected quick tunnel, `cloudflared tunnel --url … --allowed-mail …`), WebKit, other time zones.
@@ -151,6 +151,7 @@ Adapted from @Voxyz_ai's 20-point pre-launch list (26 Sept 2026) and 16 break qu
   - Critical items, and fixes touching auth, money or data, go through `/ai:loop`, not the one-pass fixer.
   - All four run at high; raise `breaker.md` to `xhigh` before a payments launch.
   - "Read-only" is an instruction, not a sandbox (Bash can still write): check `git status` after a run.
+  - **Safeguards.** Fable 5.1 and Opus 5.5 run classifiers on every message; a `[cyber]` flag switches the whole conversation to Opus 4.8 until `/model` puts it back (Config → Model & output, "Switch models when a message is flagged"; off, the flagged message pauses instead of running). The break briefs are worded as checks that our own app's controls hold on a test environment, not as attacks, since the classifier reads the words. Run `break` in a session of its own, `/feedback` each false positive, and read the report's model-switch line before trusting it as an Opus-high run. The longer route is Anthropic's Cyber Verification Program.
 
 ## Tests (`/ai:test-audit [path]`)
 
@@ -184,6 +185,7 @@ Report-first pruning of low-value tests: tests that restate the code, copied fix
 
 ## Changelog
 
+- **0.12.3** (4 Oct 2026): `/ai:preship break` briefs and the `breaker` agent are worded as checks that our own app's controls hold, after the `[cyber]` safeguard switched a run to Opus 4.8; `break` in its own session; the report names any model switch.
 - **0.12.2** (3 Oct 2026): from the first backpass runs (37 sessions each in assigame-next and snowlan) and the review log: Stage 2 of `/ai:loop` ends the turn before the build; the managed block says a gate counts only once it was seen finishing and a truncated read is not the whole file; a model the account doesn't have is skipped for a day instead of on every call; an OpenCode model without a `high` variant is retried without one; the review log keeps each review's first finding.
 - **0.12.1** (3 Oct 2026): the hook's executable bit, lost on 1 Oct when the file was rewritten through the Cowork mount, is restored; each repo's `.claude/settings.json` now calls it as `bash <path>` so a lost bit can't silence it again (`/doctor` showed "Permission denied" on every commit for two days).
 - **0.12.0** (3 Oct 2026): `ai-lane` and `AI_CHEAP_LANE` switch the cheap lane off (grunt-run exit 76, no OpenCode review fallback); `grunt` moves to Sonnet and does the work itself when the lane is off; the `review-status` mod (a band above the prompt for background lanes); the commit hook reviews `git diff HEAD` instead of the whole branch; subagent cap 5.
