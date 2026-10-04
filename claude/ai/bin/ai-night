@@ -9,6 +9,7 @@
 # Env:     AI_NIGHT_MODEL=opus  AI_NIGHT_EFFORT=high  AI_NIGHT_PERMISSION=auto  AI_NIGHT_MAX_TURNS=400  AI_NIGHT_MAX_WAIT=21600 (longest limit wait, s)
 # Why one session per spec: every call re-reads the whole conversation (4 Oct 2026: one session built 8 specs and its median call read 672k
 # tokens). Each spec starts fresh here, near 90k. `claude` is called directly, so no advisor (an advisor consult re-reads the transcript uncached).
+# AUTO_HANDOFF_DISABLE=1 keeps the claude-auto-handoff mod out of these runs: a fresh session per spec already does its job, and /clear has no place in -p.
 # Per spec: `claude -p "/ai:loop <handoff> unattended"` in the handoff's repo, under caffeinate. The skill builds the first spec whose
 # `Status:` is approved/building and updates the handoff. A handoff stops when no spec is left, when a run changes no Status line (no
 # progress: it is not retried), or after an error run. A Claude limit message ("resets 3:10am") pauses until then if that is within
@@ -49,7 +50,7 @@ run_handoff() {  # run_handoff <absolute handoff path>
     say "$name: spec run $n — $(left "$h") left ($before)"
     if [ "$DRY" = 1 ]; then say "dry run: (cd $repo && claude -p \"/ai:loop $rel unattended\" --model $MODEL --effort $EFFORT --permission-mode $PERM --max-turns $TURNS --output-format json)"; break; fi
     t0="$(now)"
-    ( cd "$repo" && awake claude -p "/ai:loop $rel unattended" --model "$MODEL" --effort "$EFFORT" --permission-mode "$PERM" \
+    ( cd "$repo" && AUTO_HANDOFF_DISABLE=1 awake claude -p "/ai:loop $rel unattended" --model "$MODEL" --effort "$EFFORT" --permission-mode "$PERM" \
         --max-turns "$TURNS" --output-format json ) > "$out" 2> "$err" < /dev/null; rc=$?
     sec=$(( $(now) - t0 )); after="$(statuses "$h")"; cost="$(json_field "$out" total_cost_usd)"; sid="$(json_field "$out" session_id)"
     w="$(limit_wait "$out" "$err")"
