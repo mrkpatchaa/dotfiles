@@ -49,6 +49,10 @@ mark_limited() { local lane="$1" kind="${2:-limit}" until="" how why="" n; [ $# 
   [ "$until" -gt $(( n + MAX_SKIP )) ] && until=$(( n + MAX_SKIP ))
   printf '%s\n%s\n%s\n' "$until" "$how" "$why" > "$(lane_key "$lane")"; }
 
+# norm_verdict [file] — the verdict word of a review in upper case (SHIP, NEEDS WORK, BLOCK, READY, REVISE), or nothing. Tolerates case and
+# markdown ("**Verdict:** ship"): on 4 Oct 2026 the hook's headless Claude reviews never wrote the exact `VERDICT:` line and all 56 were thrown away.
+norm_verdict() { grep -iEo 'verdict[*_` ]*:[*_` ]*(ship|needs work|block|ready|revise)' "${1:--}" 2>/dev/null | head -1 | sed -E 's/.*:[*_` ]*//' | tr '[:lower:]' '[:upper:]'; }
+
 # The cheap lane (OpenCode) can be switched off: AI_CHEAP_LANE=off for a shell, `git config ai-loop.cheaplane off` for a clone,
 # `git config --global ai-loop.cheaplane off` everywhere (bin/ai-lane sets and shows it). grunt-run then exits 76 and codex-review
 # skips its OpenCode fallbacks, so the Claude agents do the work themselves (grunt on Sonnet, the implementer on Opus).

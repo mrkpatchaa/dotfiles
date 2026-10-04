@@ -77,7 +77,7 @@ Everything outside Claude is reached through the scripts in `bin/`, never direct
 
 | Agent | Model in its file | Effort | Runs where |
 |---|---|---|---|
-| `implementer` | opus (Sonnet under cc-sonnet, which forces) | medium (pinned) | its own git worktree |
+| `implementer` | opus (Sonnet under cc-sonnet, which forces) | medium (pinned) | the worktree the loop creates and names in the brief (no `isolation: worktree` since 0.13.0) |
 | `verifier` | opus (Sonnet under cc-sonnet, which forces) | high (pinned) | the implementer's worktree; writes tests only |
 | `reviewer` | opus (Sonnet under cc-sonnet, which forces) | high (pinned) | read-only |
 | `grunt` | haiku | none (Haiku has no effort setting) | relays to `grunt-run` |
@@ -100,7 +100,7 @@ sequenceDiagram
   participant Main as Main agent
   participant Grunt as grunt → grunt-run
   participant Rev as codex-review
-  participant Impl as implementer (Opus medium, worktree)
+  participant Impl as implementer (Opus medium, loop's worktree)
   participant Ver as verifier (Opus high)
   participant Claude as reviewer agent (Opus)
 

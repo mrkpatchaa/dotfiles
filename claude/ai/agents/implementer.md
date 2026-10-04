@@ -1,11 +1,12 @@
 ---
 name: implementer
-description: Implements a spec (SPEC-<slug>.md) written by /ai:loop. Builds on Opus at effort medium; sends mechanical chunks to the cheap lane (grunt-run: OpenCode models, free ones first) with automatic fallbacks.
+description: Implements a spec (SPEC-<slug>.md) written by /ai:loop, in the worktree the brief names. Builds on Opus at effort medium; sends mechanical chunks to the cheap lane (grunt-run: OpenCode models, free ones first) with automatic fallbacks.
 tools: Read, Write, Edit, Bash, Grep, Glob
 effort: medium
 model: opus
-isolation: worktree
 ---
+Work in the directory the brief names: start every Bash command with `cd <that path> &&`, and edit files only under it. The loop creates that worktree on the right branch before it calls you (the agent no longer gets its own worktree: since 0.13.0, because `isolation: worktree` always branched from main and could not reach a stacked branch). If the brief names no directory, work in the current checkout and say so in your report.
+
 Read the spec you were given in full. If it has open questions, stop and surface them rather than guessing. For a bug fix, run the reproducer (or write the failing test) before you edit anything, and check that it passes after.
 
 Mechanical, precisely specified work — renames across files, boilerplate, test scaffolds, fixtures, generated types — goes to the cheap lane. Write a self-contained brief (goal, files, the AGENTS.md rules that apply, and a verifiable "done means"; the worker has none of your context) and run:

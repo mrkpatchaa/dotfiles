@@ -9,7 +9,8 @@
 #        The commit hook swaps in CODEX_REVIEW_MODEL_COMMIT / CODEX_REVIEW_EFFORT_COMMIT when set (small diffs, many calls).
 #        REVIEW_FALLBACK_MODELS="opencode-go/glm-5.3 opencode-go/kimi-k3 opencode-go/deepseek-v4.1-flash"
 #        OPENCODE_FREE_MODELS="…"   free models are asked before these (REVIEW_FREE=0: not for reviews; repo opt-out: git config ai-loop.freelane off)
-#        REVIEW_NO_OPENCODE=1 → skip the OpenCode fallback
+#        REVIEW_NO_OPENCODE=1 → skip the OpenCode fallback     REVIEW_NOTE=<text> → appended to the prompt
+#        CODEX_MAX_PARALLEL=3   Codex reviews allowed at once across all repos (0 = no cap); a call waits for a slot inside its budget
 #        REVIEW_BUDGET=1500      seconds for the whole call, all lanes together (the commit hook passes less)
 #        AI_LANE_TIMEOUT=1200    seconds for one lane     AI_STALL_TIMEOUT=300  seconds of total silence before an OpenCode lane is killed
 #        CODEX_STALL_TIMEOUT=600 the same for Codex, which can reason for minutes without printing and stops by itself when limited
@@ -37,8 +38,9 @@ case "$MODE" in
     BASE="${1:-}"; [ $# -gt 0 ] && shift; FOCUS="$*"
     [ -n "$BASE" ] || BASE="$(default_base)"
     PROMPT="Review the changes in this working tree against $BASE (run: git diff $BASE). If a docs/specs/SPEC-*.md (or an older specs/SPEC-*.md, root SPEC-*.md or SPEC.md) describes this work, check the diff against it; also check the conventions in AGENTS.md. Look for bugs, missing error handling, security issues, spec drift, and tests that pass without testing behaviour.${FOCUS:+ Focus especially on: $FOCUS.} The first line of your answer must be exactly 'VERDICT: SHIP', 'VERDICT: NEEDS WORK' or 'VERDICT: BLOCK'. Then the findings with file:line, most serious first, each with a concrete fix." ;;
-  -h|--help|*) sed -n '2,22p' "$0" >&2; exit 64 ;;
+  -h|--help|*) sed -n '2,/^# Exit:/p' "$0" >&2; exit 64 ;;
 esac
+[ -n "${REVIEW_NOTE:-}" ] && PROMPT="$PROMPT $REVIEW_NOTE"   # extra context from the caller (the commit hook lists new untracked files)
 # Model per review: the mid tier by default, the strong one only where a focus says the diff is risky. Protects the Plus quota.
 CM="${CODEX_REVIEW_MODEL:-}"; CE="${CODEX_REVIEW_EFFORT:-}"
 if [ "$MODE" = diff ] && [ -n "${FOCUS:-}" ]; then CM="${CODEX_REVIEW_MODEL_RISKY:-$CM}"; CE="${CODEX_REVIEW_EFFORT_RISKY:-$CE}"; fi
@@ -55,7 +57,8 @@ after_failure() {  # after_failure <lane> <rc> <out> <err> — record why the la
     mark_limited "$lane" limit "$err" "$out"
     echo "codex-review: $lane is at its limit — back $(lane_back "$lane")$([ "$(lane_how "$lane")" = guessed ] && echo ' (no reset time given; that is the default re-probe delay)')" >&2; echo limit
   elif [ "$rc" = 201 ]; then mark_limited "$lane" stalled; echo stalled
-  elif [ "$rc" = 202 ]; then mark_limited "$lane" timeout; echo stalled
+  elif [ "$rc" = 202 ]; then echo timeout   # still printing at the lane timeout: slow, not down. No skip (0.13.0): on 4 Oct 2026, 22 such kills each
+                                            # paused Codex for 15 min in every repo, and every probe after the pause answered at once.
   else echo "codex-review: $lane failed (exit $rc, not a limit). stderr:" >&2; grep -E '^[^ +-]' "$err" | tail -c 1500 >&2; echo >&2; keep_stderr "$lane" "$err" "$out"
     [ "$lane" = codex ] && grep -E '"type":"(error|turn\.failed)"' "$out" 2>/dev/null | tail -c 600 >&2
     if cli_rejected "$err"; then echo cli; return; fi   # the CLI itself refused the command: not the model's fault, don't skip it
@@ -64,7 +67,7 @@ after_failure() {  # after_failure <lane> <rc> <out> <err> — record why the la
     echo error; fi; }
 first_finding() { awk '/VERDICT:/{f=1; next} f && /^[[:space:]]*([-*•]|[0-9]+[.)])[[:space:]]/{sub(/^[[:space:]]*([-*•]|[0-9]+[.)])[[:space:]]*/, ""); print; exit}' "$1" 2>/dev/null | cut -c1-160; }
 keep_stderr() { tail -c 8000 "$2" > "$STATE_DIR/$(printf '%s' "$1" | tr '/:' '__').stderr" 2>/dev/null; [ -n "${3:-}" ] && tail -c 8000 "$3" > "$STATE_DIR/$(printf '%s' "$1" | tr '/:' '__').stdout" 2>/dev/null; }   # last failure per lane: stderr, and stdout (the --json error events) when given
-verdict_of() { grep -m1 -o 'VERDICT: [A-Z ]*' "$1" 2>/dev/null | sed 's/VERDICT: //; s/ *$//'; }
+verdict_of() { norm_verdict "$1"; }
 weekly_used() { "$_PY" "$_BIN/_limits.py" codex-usage --weekly --since "$(mtime "$STATE_DIR/cleared")" 2>/dev/null | tr -cd '0-9'; }   # 7-day window %, empty when unknown
 REPO="$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")"
 # log_review <lane> <model> <verdict> <outcome> <note> — one tab-separated line per lane attempt in $STATE_DIR/reviews.log (`ai-limits log`)
@@ -74,6 +77,29 @@ fail_note() {  # fail_note <lane> <rc> <why> <out> <err> — for the log: the re
   local t; if [ "$3" = limit ]; then echo "back $(lane_back "$1"); $(sed -n '3p' "$(lane_key "$1")" | sed -E 's/^.*"message": ?"//')"; return; fi
   t="$(grep -v ' working, ' "$5" 2>/dev/null | grep -i -m1 -A2 'error' | tr '\n' ' ' | sed 's/ *$//')"; [ -n "$t" ] || t="$(grep -E '^[^ +-]' "$5" 2>/dev/null | tail -1)"
   [ -n "$t" ] || t="$(tail -c 300 "$4" 2>/dev/null | tail -1)"; echo "exit $2; $t (stderr: $STATE_DIR/$(printf '%s' "$1" | tr '/:' '__').stderr)"; }
+# Parallel cap (0.13.0): at most CODEX_MAX_PARALLEL Codex reviews at once, across repos and sessions. On 4 Oct 2026 up to 9 ran together:
+# slower reviews, more lane timeouts, and the 5-hour window spent by 14:02. A slot is a directory holding its owner's pid; a slot whose owner
+# is gone is taken over. Waiting counts against REVIEW_BUDGET, and the call gives up on Codex when less than 2 minutes would be left.
+SLOT=""
+codex_slot() { local max="${CODEX_MAX_PARALLEL:-3}" i d p t=0
+  [ "$max" -gt 0 ] 2>/dev/null || return 0
+  mkdir -p "$STATE_DIR/codex-slots"
+  while :; do
+    i=1
+    while [ "$i" -le "$max" ]; do d="$STATE_DIR/codex-slots/$i"
+      if mkdir "$d" 2>/dev/null; then echo $$ > "$d/pid"; SLOT="$d"; [ "$t" -gt 0 ] && echo "codex-review: got Codex slot $i after ${t}s" >&2; return 0; fi
+      p="$(cat "$d/pid" 2>/dev/null)"
+      if [ -n "$p" ] && ! kill -0 "$p" 2>/dev/null; then rm -rf "$d"; continue; fi                          # owner gone: take the slot
+      if [ -z "$p" ] && [ $(( $(now) - $(mtime "$d") )) -gt 30 ]; then rm -rf "$d"; continue; fi          # pid never written
+      i=$(( i + 1 ))
+    done
+    [ $(( BUDGET - ( $(now) - T0 ) )) -ge 120 ] || return 1
+    [ $(( t % 60 )) -eq 0 ] && echo "codex-review: $max Codex reviews already running — waiting for a slot, ${t}s so far (CODEX_MAX_PARALLEL)" >&2
+    lane_status "codex-review: waiting for a Codex slot"; sleep 5; t=$(( t + 5 ))
+  done; }
+codex_slot_free() { [ -n "$SLOT" ] && rm -rf "$SLOT"; SLOT=""; }
+trap 'lane_status_clear; codex_slot_free' EXIT
+
 PROBED="$STATE_DIR/codex.probed"
 recheck_due() { [ "${CODEX_RECHECK:-1}" != 0 ] && [ $(( $(now) - $(mtime "$PROBED") )) -ge "${CODEX_RECHECK_EVERY:-1800}" ]; }
 snapshot_age() { "$_PY" "$_BIN/_limits.py" codex-usage --age --since "$(mtime "$STATE_DIR/cleared")" 2>/dev/null | tr -cd '0-9'; }
@@ -113,6 +139,9 @@ else
      && [ "$(snapshot_age)" -ge "${CODEX_RECHECK_EVERY:-1800}" ] 2>/dev/null && recheck_due; then codex_probe; WEEKLY="$(weekly_used)"; fi
   if recently_limited codex; then
     echo "codex-review: skipping Codex ($(lane_how codex)) — back $(lane_back codex)" >&2; log_review codex "$CM" - skipped "$(lane_how codex); back $(lane_back codex)"
+  elif ! codex_slot; then
+    echo "codex-review: no free Codex slot within the budget (CODEX_MAX_PARALLEL=${CODEX_MAX_PARALLEL:-3}) — skipping Codex for this call only" >&2
+    log_review codex "$CM" - busy "no free slot in time (CODEX_MAX_PARALLEL=${CODEX_MAX_PARALLEL:-3})"
   elif fit_budget; then
     if [ "$DOWN_AT" != 0 ] && [ -n "$WEEKLY" ] && [ "$WEEKLY" -ge "$DOWN_AT" ] && [ "$CM" != "$CHEAP" ]; then
       downgraded="7-day window at ${WEEKLY}% — ${CM:-the config.toml model} replaced by $CHEAP"; CM="$CHEAP"; CE="${CODEX_REVIEW_EFFORT_CHEAP:-high}"
@@ -143,6 +172,7 @@ else
     why="$(after_failure codex "$rc" "$out" "$err")"; log_review codex "$CM" - "$why" "$(fail_note codex "$rc" "$why" "$out" "$err")"
     rm -f "$out" "$err" "$last"; STALL_TIMEOUT="$oc_stall"
   fi
+  codex_slot_free
 fi
 
 # 2) OpenCode Go reviewer (different vendor, read-only: edits and shell denied except git read commands).
