@@ -18,7 +18,7 @@ A map of `dotfiles/claude`: what launches what, who reviews what, and where each
 ```mermaid
 flowchart LR
   subgraph shell["Your shell · aliases.zsh"]
-    A1["cc-opus<br/>Opus 5.5 · 1M · high"]
+    A1["cc-opus<br/>Opus 5.5 · 1M · high + Fable advisor"]
     A2["cc-fable<br/>Fable · high"]
     A3["cc-sonnet<br/>Sonnet · high + Opus advisor"]
     A4["cc-sonnet-solo<br/>Sonnet · high"]
@@ -68,7 +68,7 @@ Everything outside Claude is reached through the scripts in `bin/`, never direct
 
 | Alias | Main session | Subagents | Effort at launch | Use it for |
 |---|---|---|---|---|
-| `cc-opus` | Opus 5.5, 1M context | per agent file (default Opus) | high | the daily driver |
+| `cc-opus` | Opus 5.5, 1M context + Fable advisor (trial) | per agent file (default Opus) | high | the daily driver |
 | `cc-fable` | Fable | per agent file (default Opus 5.5) | high | what Opus at xhigh got wrong |
 | `cc-sonnet` | Sonnet + Opus advisor | Sonnet (forced) | high | short sessions, cheaper |
 | `cc-sonnet-solo` | Sonnet | Sonnet (forced) | high | comparing `/usage` |

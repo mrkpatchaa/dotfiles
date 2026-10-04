@@ -39,7 +39,7 @@ The marketplace is a local directory, so the plugin loads in place: edit anythin
 
 | Alias | Main | Subagents |
 | --- | --- | --- |
-| `cc-opus` | `opus[1m]` (Opus 5.5, 1M context), high. The daily driver. | Each agent file decides (`CLAUDE_CODE_SUBAGENT_MODEL=opus` only covers agents that name no model). |
+| `cc-opus` | `opus[1m]` (Opus 5.5, 1M context), high, with `--advisor fable` (trial since 5 Oct 2026; `/advisor off` mid-session). The daily driver. | Each agent file decides (`CLAUDE_CODE_SUBAGENT_MODEL=opus` only covers agents that name no model). |
 | `cc-fable` | Fable, high. For what Opus gets wrong. | Same as cc-opus. |
 | `cc-sonnet` | Sonnet, high, with `--advisor opus`. | Forced to Sonnet. |
 | `cc-sonnet-solo` | Sonnet, high, no advisor. | Forced to Sonnet. |
