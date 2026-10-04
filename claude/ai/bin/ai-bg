@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# ai-bg — run a long command detached from the agent's shell and wait for it in short foreground steps (0.14.0).
+# For headless runs (`claude -p`, ai-night), where a background Bash command may be dropped when the turn ends, and for commands that
+# outlast the 10-minute Bash ceiling (codex-review can take 35 minutes).
+# Usage: ai-bg start <name> -- <command…>   start it with nohup; output in $STATE_DIR/bg/<name>.out, exit code in <name>.rc when done
+#        ai-bg wait <name> [seconds]        block up to <seconds> (AI_BG_WAIT, default 540): prints the output and exits with the command's
+#                                           code when it is done; prints "still running" and exits 124 when not. Call it again then.
+#        ai-bg status [name]                list jobs (running / exit code)
+# Waiting costs no model turns: one `wait` call blocks in the shell. A job whose process died without an exit code reads as exit 125.
+set -u
+. "$(cd "$(dirname "$0")" && pwd)/_common.sh"
+BG="$STATE_DIR/bg"; mkdir -p "$BG"
+key() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'; }
+case "${1:-}" in
+  start)
+    [ $# -ge 4 ] && [ "$3" = "--" ] || { echo "usage: ai-bg start <name> -- <command…>" >&2; exit 64; }
+    k="$(key "$2")"; shift 3
+    if [ -f "$BG/$k.pid" ] && [ ! -f "$BG/$k.rc" ] && kill -0 "$(cat "$BG/$k.pid")" 2>/dev/null; then echo "ai-bg: $k is already running (pid $(cat "$BG/$k.pid"))" >&2; exit 1; fi
+    rm -f "$BG/$k.out" "$BG/$k.rc" "$BG/$k.pid"
+    printf '%s\n' "$PWD" > "$BG/$k.cwd"
+    nohup bash -c '"$@" > "$0.out" 2>&1 < /dev/null; echo $? > "$0.rc.tmp"; mv "$0.rc.tmp" "$0.rc"' "$BG/$k" "$@" > /dev/null 2>&1 &
+    echo $! > "$BG/$k.pid"
+    echo "ai-bg: started $k (pid $!). Wait with: ai-bg wait $k" ;;
+  wait)
+    [ -n "${2:-}" ] || { echo "usage: ai-bg wait <name> [seconds]" >&2; exit 64; }
+    k="$(key "$2")"; limit="${3:-${AI_BG_WAIT:-540}}"; t=0
+    [ -f "$BG/$k.pid" ] || { echo "ai-bg: no job named $k" >&2; exit 66; }
+    while [ ! -f "$BG/$k.rc" ]; do
+      if ! kill -0 "$(cat "$BG/$k.pid")" 2>/dev/null; then sleep 1; [ -f "$BG/$k.rc" ] && break; echo 125 > "$BG/$k.rc"; break; fi
+      [ "$t" -ge "$limit" ] && { echo "ai-bg: $k still running after ${t}s more — call ai-bg wait $k again"; tail -n 3 "$BG/$k.out" 2>/dev/null | sed 's/^/  last: /'; exit 124; }
+      sleep 1; t=$(( t + 1 ))
+    done
+    cat "$BG/$k.out" 2>/dev/null; rc="$(cat "$BG/$k.rc")"; exit "${rc:-125}" ;;
+  status)
+    for p in "$BG"/${2:+$(key "$2")}*.pid; do [ -f "$p" ] || continue; k="$(basename "$p" .pid)"
+      if [ -f "$BG/$k.rc" ]; then echo "$k: exit $(cat "$BG/$k.rc")"; elif kill -0 "$(cat "$p")" 2>/dev/null; then echo "$k: running"; else echo "$k: died"; fi; done ;;
+  -h|--help|*) sed -n '2,10p' "$0" >&2; exit 64 ;;
+esac

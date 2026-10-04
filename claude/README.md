@@ -27,6 +27,8 @@ The marketplace is a local directory, so the plugin loads in place: edit anythin
 | `ai/bin/ai-lane` | Shows and switches the cheap lane: `ai-lane off` (this clone), `ai-lane off --global`, `ai-lane on`, `ai-lane free off`. |
 | `ai/hooks/review-status.tsx` | A mod: a band above the prompt while a `codex-review` or `grunt-run` lane runs in the background, and the last verdict for ten minutes after. |
 | `ai/bin/codex-review` | Codex review with limit-aware fallbacks. |
+| `ai/bin/ai-night` | Builds the specs of `/ai:loop` handoffs while you are away: one fresh headless session per spec. `--smoke` checks the machine first. |
+| `ai/bin/ai-bg` | Runs a long command detached and waits for it in foreground steps of up to 9 minutes (unattended reviews). |
 | `ai/bin/jev-triage` | Optional commit triage through TypeSafe's Jev. |
 | `ai/bin/ai-limits` | Which lanes are limited, until when, and the review log. |
 | `ai/hook-scripts/review-before-commit.sh` | Reviews a `git commit` Claude Code is about to run. |
@@ -76,6 +78,16 @@ Tiers, set in `aliases.zsh` (update the Codex CLI so it knows the ids):
 - **No approval prompts.** Reviews run read-only with `-c approval_policy="never"`, so there's nothing to approve and no `codex-auto-review` guardian sub-sessions. `codex exec` has no `-a`/`--ask-for-approval` flag, whatever the CLI reference says; the source (`codex-rs/exec/src/cli.rs`) doesn't have it.
 - **Stale limits.** A stored skip is only as good as its date: limits get reset and credits get bought. Once a Codex mark, or a snapshot that would downgrade the review, is older than `CODEX_RECHECK_EVERY` (1800 s), `codex-review` first sends one word ("Reply with exactly: OK") on the cheap tier at low effort, with no tools, capped at `CODEX_PROBE_TIMEOUT` (90 s). A refusal costs nothing and re-dates the mark from Codex's own message. An answer removes the mark, voids older snapshots (`cleared`) and leaves a fresh one, so the pre-flight and the weekly rule work from the real figure. It's logged as lane `codex-probe` (`answered`, `limit` or `unknown`), and `ai-limits` says when the next one is due. `ai-limits clear codex` skips the wait; `CODEX_RECHECK=0` turns the probe off.
 - **Review log.** Every call appends one tab-separated line per lane attempt to `~/.local/state/ai-loop/reviews.log`: date, repo, mode, lane, model, verdict, outcome (`ok`, `skipped`, `limit`, `stalled`, `error`, `none`), seconds, and a note. The note holds the weekly % before → after, the reset time and the lane's own words, or the error line. `ai-limits log [N]` prints the last N (12), and `ai-limits` says when the week is past the threshold. A failed lane keeps its full stderr in `~/.local/state/ai-loop/<lane>.stderr`.
+
+## Unattended nights (`ai-night`, 0.14.0)
+
+1. With you there: `/ai:loop <the batch>` runs Stages 1–2 for every spec and writes `docs/tasks/<batch>-handoff.md` (one `## <n>. <slug>` section per spec with a `Status:` line).
+2. Once per machine: `ai-night --smoke` (about 5 minutes, a throwaway repo, Sonnet). It answers what the docs leave open: does a manual-only skill start from `claude -p`, does the permission mode get through a write and a commit, and does `claude -p` wait for background Bash or drop it.
+3. When you leave: `ai-night docs/tasks/<batch>-handoff.md [more…]`, `--parallel 2` for two repos at once. Each spec gets a fresh `claude -p "/ai:loop <handoff> unattended"` (Opus, high, `--permission-mode auto`, no advisor) under `caffeinate`. The skill asks nothing, never merges or pushes, runs reviews through `ai-bg`, and marks a spec `blocked` with its question when only you can decide.
+4. A handoff stops when no spec is left, when a run changes no `Status:` line, or after an error. A Claude limit message pauses the run until the reset if that is within 6 h (`AI_NIGHT_MAX_WAIT`), then retries the same spec.
+5. In the morning: `ai-night --report`, and the handoff file itself.
+
+Why: every call re-reads the whole conversation. On 4 Oct one session built 8 specs and its median call read 672k tokens; a fresh session per spec starts near 90k.
 
 ## Limits and fallbacks
 
@@ -186,6 +198,7 @@ Report-first pruning of low-value tests: tests that restate the code, copied fix
 
 ## Changelog
 
+- **0.14.0** (5 Oct 2026): `ai-night` and `ai-bg` for unattended builds (see Unattended nights); the loop's handoff carries an exact `Status:` line and an Unattended runs section.
 - **0.13.2** (5 Oct 2026): one spec per build session. A batch gets Stages 1–2 in one session and a handoff in `docs/tasks/<batch>-handoff.md`; `/ai:loop <handoff>` then builds one spec per new session. The 4 Oct snowlan loop re-read a median 672k tokens per call after building 8 specs in one session.
 - **0.13.1** (4 Oct 2026): loop and `/ai:ship` reviews get a 1500 s lane and a 2100 s budget (were 1200/1500): the longest finished review took 1203 s, 6 were killed at the limit, and a call may now wait for a Codex slot. The skills' waiting rule moves from 26 to 36 minutes. The commit hook keeps 400/540.
 - **0.13.0** (4 Oct 2026): from the 3–4 Oct session transcripts and review log. The `implementer` drops `isolation: worktree`, which always branched from main: on a stacked branch it could not start, and the loop built with `general-purpose` agents at the session's effort (max). The loop now creates and marks the worktree, passes its path to the implementer and the verifier, and never builds with another agent. A lane timeout no longer pauses Codex for 15 minutes in every repo (22 times on 4 Oct). At most 3 Codex reviews at once (9 ran together on 4 Oct). The commit hook skips loop branches, agent worktrees, empty and docs-only changes (304 commits waited 7.5 h on it), reads verdicts in any case (all 56 headless Claude reviews had been dropped for a missing `VERDICT:` line), follows `cd <dir> &&`, and names untracked files.

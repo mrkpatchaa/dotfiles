@@ -6,9 +6,15 @@ disable-model-invocation: true
 Run the full loop for: $ARGUMENTS
 
 One spec per build session. Every model call re-reads the whole conversation, so a long session costs more on every call: the 4 Oct 2026 snowlan loop built 8 specs in one session, grew from 88k to 879k tokens, and its median call re-read 672k tokens over 534 calls. You cannot run `/clear` or `/compact` yourself, so:
-- When the request covers several specs (a QA batch, a list of features), do Stages 1 and 2 for all of them in this session. Then write `docs/tasks/<batch>-handoff.md`: one section per spec with its path, branch, base, planned worktree, status (`approved`, `building`, `shipped`, `blocked`), my gate answers, and the order to build them in. Stop there and ask me to start a new session with `/ai:loop docs/tasks/<batch>-handoff.md`.
+- When the request covers several specs (a QA batch, a list of features), do Stages 1 and 2 for all of them in this session. Then write `docs/tasks/<batch>-handoff.md`: one `## <n>. <slug>` section per spec, in build order, with its path, branch, base, planned worktree, my gate answers, and one line `Status: approved` (later `building`, `shipped` or `blocked`). Keep that line exact: `ai-night` counts the specs left by it. Stop there and ask me to start a new session with `/ai:loop docs/tasks/<batch>-handoff.md`.
 - When the argument is a handoff file, read it, take the first spec that is not `shipped` or `blocked`, and start at Stage 3: its spec was already approved, so ask no Stage 1 questions and run no Stage 2. Build that one spec through Stage 5, update its section (status, commits, PR, both verdicts, open points), then stop and ask me to start the next session with the same command. When no spec is left, give the final report for the batch.
 - With a single spec, run the whole loop in this session as below.
+
+Unattended runs. When the arguments contain `unattended` (`ai-night` adds it; I am away from the computer):
+- Ask me nothing and wait for nothing from me. A decision only I can make: write the question under the spec's section, set `Status: blocked`, and stop.
+- Never merge, push or deploy. Leave the work on its branch, committed, and say in the handoff what is left to check.
+- Run every `codex-review` call through `ai-bg`, not as a background Bash command: `ai-bg start review-<slug> -- codex-review diff <base>`, then `ai-bg wait review-<slug>` in the foreground until it prints the review (each wait blocks up to 9 minutes; call it again while it says `still running`). Run subagents in the foreground too. A headless run may end, and drop background work, when your turn ends.
+- Stage 5's limit holds: after a second BLOCK, set `Status: blocked` with the reason and stop.
 
 Conventions: specs live in `docs/specs/` as `docs/specs/SPEC-<slug>.md`; plans, task lists, handoffs and run notes for the work live in `docs/tasks/`; shipped or dropped work moves to `docs/archive/` (create the folders if missing; nothing goes at the repo root). Never overwrite an existing spec — pick a new slug. The helper commands below are on PATH while the `ai` plugin is enabled. The first output line of every helper names who actually did the work (`WORKER:` / `REVIEWER:`); carry those names into the final report.
 

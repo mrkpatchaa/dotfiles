@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# ai-night — build the specs of one or more /ai:loop handoffs while you are away, one fresh headless session per spec (0.14.0).
+# Plan first, with you there: `/ai:loop <several specs>` runs Stages 1–2 and writes docs/tasks/<batch>-handoff.md. Then:
+#   ai-night docs/tasks/<batch>-handoff.md [more handoffs…]   (paths absolute or relative to where you run it)
+#   ai-night --smoke          5-minute check of what headless runs can do on this machine (run it once, before the first night)
+#   ai-night --report [N]     the last N lines of the night log (default 20)
+# Options: --parallel 2   handoffs of different repos side by side (default 1, at most 2: Claude's limits, and 3 Codex slots)
+#          --max-specs N  specs per handoff in one run (default 20)     --dry-run   say what would run, start nothing
+# Env:     AI_NIGHT_MODEL=opus  AI_NIGHT_EFFORT=high  AI_NIGHT_PERMISSION=auto  AI_NIGHT_MAX_TURNS=400  AI_NIGHT_MAX_WAIT=21600 (longest limit wait, s)
+# Why one session per spec: every call re-reads the whole conversation (4 Oct 2026: one session built 8 specs and its median call read 672k
+# tokens). Each spec starts fresh here, near 90k. `claude` is called directly, so no advisor (an advisor consult re-reads the transcript uncached).
+# Per spec: `claude -p "/ai:loop <handoff> unattended"` in the handoff's repo, under caffeinate. The skill builds the first spec whose
+# `Status:` is approved/building and updates the handoff. A handoff stops when no spec is left, when a run changes no Status line (no
+# progress: it is not retried), or after an error run. A Claude limit message ("resets 3:10am") pauses until then if that is within
+# AI_NIGHT_MAX_WAIT, then retries the same spec; a later reset stops the run. Log: $STATE_DIR/night.log; each run's output: $STATE_DIR/night/.
+set -u
+. "$(cd "$(dirname "$0")" && pwd)/_common.sh"
+ND="$STATE_DIR/night"; mkdir -p "$ND"; LOG="$STATE_DIR/night.log"
+MODEL="${AI_NIGHT_MODEL:-opus}"; EFFORT="${AI_NIGHT_EFFORT:-high}"; PERM="${AI_NIGHT_PERMISSION:-auto}"; TURNS="${AI_NIGHT_MAX_TURNS:-400}"
+MAXWAIT="${AI_NIGHT_MAX_WAIT:-21600}"; PAR=1; MAXSPECS=20; DRY=0
+say() { echo "ai-night: $*" >&2; }
+nlog() { printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$1" "$2" "$3" "$4" "$(printf '%s' "$5" | tr '\t\n' '  ' | cut -c1-240)" >> "$LOG"; }
+statuses() { grep -E '^Status:[[:space:]]*[a-z]+' "$1" 2>/dev/null | sed -E 's/^Status:[[:space:]]*([a-z]+).*/\1/' | tr '\n' ' '; }
+left() { statuses "$1" | tr ' ' '\n' | grep -Ec '^(approved|building)$'; }
+awake() { if command -v caffeinate >/dev/null 2>&1; then caffeinate -i "$@"; else "$@"; fi; }   # macOS: no idle sleep while it runs
+# limit_wait <file…> — seconds until the reset a Claude limit message names, or nothing. "resets 3:10am", "resets 4pm".
+limit_wait() { cat "$@" 2>/dev/null | "$_PY" -c '
+import re,sys,datetime as d
+t=sys.stdin.read(); m=re.search(r"(?:hit your|reached your)[^\n]{0,40}?limit[^\n]{0,20}?resets\s+(\d{1,2})(?::(\d\d))?\s*(am|pm)",t,re.I)
+if not m: sys.exit(0)
+h=int(m.group(1))%12+(12 if m.group(3).lower()=="pm" else 0); mi=int(m.group(2) or 0); n=d.datetime.now()
+r=n.replace(hour=h,minute=mi,second=0,microsecond=0)
+if r<=n: r+=d.timedelta(days=1)
+print(int((r-n).total_seconds())+120)'; }
+json_field() { "$_PY" -c 'import json,sys
+try: d=json.load(open(sys.argv[1]))
+except Exception: sys.exit(0)
+v=d.get(sys.argv[2]); print("" if v is None else v)' "$1" "$2" 2>/dev/null; }
+
+run_handoff() {  # run_handoff <absolute handoff path>
+  local h="$1" repo rel name n=0 before after base rc w cost sid out err t0 sec errs=0
+  repo="$(cd "$(dirname "$h")" && git rev-parse --show-toplevel 2>/dev/null)" || { say "$h is not inside a git repo"; return 1; }
+  rel="${h#$repo/}"; name="$(basename "$repo")"
+  if ! mkdir "$ND/lock-$name" 2>/dev/null; then say "$name: another ai-night runs there (remove $ND/lock-$name if not)"; return 1; fi
+  while :; do
+    if [ "$(left "$h")" -eq 0 ]; then say "$name: no spec left in $rel ($(statuses "$h"))"; nlog "$name" "$rel" "-" done "$(statuses "$h")"; break; fi
+    if [ "$n" -ge "$MAXSPECS" ]; then say "$name: --max-specs $MAXSPECS reached"; nlog "$name" "$rel" "-" stopped "max-specs"; break; fi
+    before="$(statuses "$h")"; n=$(( n + 1 )); base="$ND/$(date '+%Y%m%d-%H%M%S')-$name-$n"; out="$base.json"; err="$base.err"
+    say "$name: spec run $n — $(left "$h") left ($before)"
+    if [ "$DRY" = 1 ]; then say "dry run: (cd $repo && claude -p \"/ai:loop $rel unattended\" --model $MODEL --effort $EFFORT --permission-mode $PERM --max-turns $TURNS --output-format json)"; break; fi
+    t0="$(now)"
+    ( cd "$repo" && awake claude -p "/ai:loop $rel unattended" --model "$MODEL" --effort "$EFFORT" --permission-mode "$PERM" \
+        --max-turns "$TURNS" --output-format json ) > "$out" 2> "$err" < /dev/null; rc=$?
+    sec=$(( $(now) - t0 )); after="$(statuses "$h")"; cost="$(json_field "$out" total_cost_usd)"; sid="$(json_field "$out" session_id)"
+    w="$(limit_wait "$out" "$err")"
+    if [ -n "$w" ]; then
+      if [ "$w" -le "$MAXWAIT" ]; then say "$name: Claude limit — waiting $(fmt_dur "$w"), then the same spec again"; nlog "$name" "$rel" "$n" limit "${sec}s; wait $(fmt_dur "$w"); $after"; sleep "$w"; n=$(( n - 1 )); continue
+      else say "$name: Claude limit resets in $(fmt_dur "$w") — stopping"; nlog "$name" "$rel" "$n" stopped "limit in $(fmt_dur "$w")"; break; fi
+    fi
+    if [ "$rc" -ne 0 ]; then errs=$(( errs + 1 )); say "$name: claude exited $rc ($(tail -c 300 "$err" | tr '\n' ' '))"; nlog "$name" "$rel" "$n" error "exit $rc; ${sec}s; ${cost:+\$$cost; }$after"
+      [ "$before" != "$after" ] && [ "$errs" -lt 2 ] && continue; break; fi
+    if [ "$before" = "$after" ]; then say "$name: no Status line changed — stopping this handoff (see $out)"; nlog "$name" "$rel" "$n" no-progress "${sec}s; ${cost:+\$$cost; }session $sid"; break; fi
+    nlog "$name" "$rel" "$n" ok "${sec}s; ${cost:+\$$cost; }$after; session $sid"
+  done
+  rm -rf "$ND/lock-$name"; }
+
+smoke() {  # three questions the docs leave open, asked of a throwaway repo with a cheap model
+  local d f t0 sec out
+  command -v claude >/dev/null 2>&1 || { say "claude is not on PATH"; return 1; }
+  d="$(mktemp -d "${TMPDIR:-/tmp}/ai-night-smoke.XXXXXX")"; cd "$d" || return 1
+  git init -q -b main . && git -c user.name=smoke -c user.email=smoke@local commit -q --allow-empty -m init
+  mkdir -p .claude/skills/smoke-probe; printf -- '---\nname: smoke-probe\ndescription: smoke test\ndisable-model-invocation: true\n---\nReply with exactly: SMOKE-SKILL-OK $ARGUMENTS\n' > .claude/skills/smoke-probe/SKILL.md
+  echo "1/3 Does a manual-only skill run from claude -p?"
+  out="$(claude -p "/smoke-probe arg42" --model sonnet --max-turns 2 2>&1)"
+  case "$out" in *SMOKE-SKILL-OK*arg42*) echo "    yes — /ai:loop … will start from ai-night" ;; *) echo "    NO — output: $(printf '%s' "$out" | head -c 300)"; echo "    → ai-night cannot start /ai:loop this way; tell Claude in Cowork" ;; esac
+  echo "2/3 Can permission mode '$PERM' write, run git and commit with nobody there?"
+  out="$(claude -p "Use the Write tool to create notes.txt containing the word smoke. Then run in Bash: git add notes.txt && git -c user.name=smoke -c user.email=smoke@local commit -m smoke. Then reply DONE." --model sonnet --permission-mode "$PERM" --max-turns 6 --output-format json 2>&1)"
+  if git log --oneline | grep -q smoke && [ -f notes.txt ]; then echo "    yes"; else echo "    NO — $(printf '%s' "$out" | grep -o '"permission_denials":[^]]*]' | head -c 300)"; echo "    → try AI_NIGHT_PERMISSION=acceptEdits, or allow Bash(git *) in settings"; fi
+  echo "3/3 Does claude -p wait for a background Bash command, or end and drop it? (about 45 s)"
+  f="$d/bg-done"; t0="$(now)"
+  claude -p "Start this command with the Bash tool and run_in_background set to true: sleep 25 && echo done > $f . Do not wait for it and do not check it. Reply STARTED and end your turn." \
+    --model sonnet --permission-mode "$PERM" --max-turns 4 > /dev/null 2>&1; sec=$(( $(now) - t0 ))
+  sleep 35
+  if [ "$sec" -ge 25 ] && [ -f "$f" ]; then echo "    it waits (${sec}s): background Bash works headless; ai-bg is still fine"
+  elif [ -f "$f" ]; then echo "    it ends after ${sec}s but the command survives: the loop must not rely on the exit report — ai-bg is right"
+  else echo "    it ends after ${sec}s and the command is dropped: the unattended rule (ai-bg, foreground subagents) is required"; fi
+  echo "Throwaway repo: $d (delete it when you like). Paste these lines to Claude in Cowork."; }
+
+case "${1:-}" in --smoke) smoke; exit $? ;; --report) tail -n "${2:-20}" "$LOG" 2>/dev/null | column -t -s "$(printf '\t')" 2>/dev/null || tail -n "${2:-20}" "$LOG"; exit 0 ;; -h|--help|"") sed -n '2,19p' "$0" >&2; exit 64 ;; esac
+H=""
+while [ $# -gt 0 ]; do case "$1" in
+  --parallel) PAR="${2:-1}"; shift 2 ;; --max-specs) MAXSPECS="${2:-20}"; shift 2 ;; --dry-run) DRY=1; shift ;;
+  -*) say "unknown option $1"; exit 64 ;;
+  *) [ -f "$1" ] || { say "$1 not found"; exit 66; }; H="$H $(cd "$(dirname "$1")" && pwd)/$(basename "$1")"; shift ;;
+esac; done
+[ -n "$H" ] || { say "name at least one handoff file"; exit 64; }
+[ "$PAR" -ge 1 ] 2>/dev/null || PAR=1; [ "$PAR" -le 2 ] || { say "--parallel is capped at 2"; PAR=2; }
+command -v claude >/dev/null 2>&1 || { say "claude is not on PATH"; exit 69; }
+# Group by repo: handoffs of one repo run one after another in the same group; groups run side by side.
+i=0; groups=""
+for h in $H; do r="$(cd "$(dirname "$h")" && git rev-parse --show-toplevel 2>/dev/null)"; [ -n "$r" ] || { say "$h is not in a git repo"; exit 66; }
+  g="$(printf '%s\n' "$groups" | grep -F "$r=" | head -1 | sed 's/.*=//')"
+  [ -n "$g" ] || { g=$(( i % PAR )); i=$(( i + 1 )); groups="$groups
+$r=$g"; }
+  eval "G$g=\"\${G$g:-} $h\""; done
+say "start: $(echo $H | wc -w | tr -d ' ') handoff(s), $PAR at a time · $MODEL/$EFFORT · permission $PERM · log $LOG"
+g=0; while [ "$g" -lt "$PAR" ]; do eval "list=\${G$g:-}"; [ -n "$list" ] && ( for h in $list; do run_handoff "$h"; done ) & g=$(( g + 1 )); done
+wait
+say "finished. ai-night --report shows the log; each handoff file has every spec's status."
