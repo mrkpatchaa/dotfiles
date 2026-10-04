@@ -11,8 +11,8 @@
 #        OPENCODE_FREE_MODELS="…"   free models are asked before these (REVIEW_FREE=0: not for reviews; repo opt-out: git config ai-loop.freelane off)
 #        REVIEW_NO_OPENCODE=1 → skip the OpenCode fallback     REVIEW_NOTE=<text> → appended to the prompt
 #        CODEX_MAX_PARALLEL=3   Codex reviews allowed at once across all repos (0 = no cap); a call waits for a slot inside its budget
-#        REVIEW_BUDGET=1500      seconds for the whole call, all lanes together (the commit hook passes less)
-#        AI_LANE_TIMEOUT=1200    seconds for one lane     AI_STALL_TIMEOUT=300  seconds of total silence before an OpenCode lane is killed
+#        REVIEW_BUDGET=2100      seconds for the whole call, all lanes together, slot wait included (the commit hook passes less)
+#        AI_LANE_TIMEOUT=1500    seconds for one lane     AI_STALL_TIMEOUT=300  seconds of total silence before an OpenCode lane is killed
 #        CODEX_STALL_TIMEOUT=600 the same for Codex, which can reason for minutes without printing and stops by itself when limited
 #        AI_LIMIT_COOLDOWN=1800  skip time for a limited lane that did not say when it resets (when it does say, that time is used)
 #        CODEX_PREFLIGHT=0 → don't read Codex's own usage data before calling it     CODEX_REVIEW_JSON=0 → plain `codex exec` output
@@ -24,6 +24,9 @@
 # Exit:  0 = review printed (first line: REVIEWER: <who>)   75 = no reviewer reachable   64 = usage   66 = file missing
 set -u
 . "$(cd "$(dirname "$0")" && pwd)/_common.sh"
+# Review lane: 1500 s, budget 2100 s (0.13.1; were 1200/1500). On 28 Sep–4 Oct the longest finished loop review took 1203 s, 6 were
+# killed at the limit, and since 0.13.0 a call may first wait for a Codex slot. The commit hook still passes its own 400/540.
+LANE_TIMEOUT="${AI_LANE_TIMEOUT:-1500}"
 default_base() {  # origin's default branch, else main, else master (the pipe to sed used to hide a failed symbolic-ref and return "")
   local b; b="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
   [ -n "$b" ] || { git show-ref --verify --quiet refs/heads/main && b=main; }
@@ -47,7 +50,7 @@ if [ "$MODE" = diff ] && [ -n "${FOCUS:-}" ]; then CM="${CODEX_REVIEW_MODEL_RISK
 ASKED="$CM"   # what the caller wanted; the weekly-budget rule below may swap in the cheap tier
 codex_model() { grep -E '^[[:space:]]*model[[:space:]]*=' .codex/config.toml "$HOME/.codex/config.toml" 2>/dev/null | head -1 | sed -E 's/.*=[[:space:]]*"?([^"[:space:]]*)"?.*/\1/'; }
 
-T0="$(now)"; BUDGET="${REVIEW_BUDGET:-1500}"
+T0="$(now)"; BUDGET="${REVIEW_BUDGET:-2100}"
 fit_budget() {  # shrink the lane timeout to what is left of the budget; false when under a minute is left
   local left=$(( BUDGET - ( $(now) - T0 ) )); [ "$left" -ge 60 ] || return 1
   [ "$LANE_TIMEOUT" -le "$left" ] || LANE_TIMEOUT="$left"; [ "$STALL_TIMEOUT" -le "$LANE_TIMEOUT" ] || STALL_TIMEOUT="$LANE_TIMEOUT"; }

@@ -48,7 +48,7 @@ export CODEX_REVIEW_MODEL_RISKY="gpt-6.1-sol"  # a focus (auth, payments, schema
 export CODEX_REVIEW_EFFORT_RISKY="xhigh"
 export CODEX_REVIEW_MODEL_COMMIT="gpt-6-luna"  # the pre-commit hook: small diffs, many calls. Unset both to review commits on Sol.
 export CODEX_REVIEW_EFFORT_COMMIT="high"       # max is Luna's best mode but slower; the hook has 540 s
-export CODEX_REVIEW_EFFORT_CHEAP="max"         # the weekly-budget downgrade tier (Luna): loop reviews have 25 min, so use Luna's best mode (0.5.3; was high)
+export CODEX_REVIEW_EFFORT_CHEAP="max"         # the weekly-budget downgrade tier (Luna): loop reviews have 35 min, so use Luna's best mode (0.5.3; was high)
 # Weekly budget (plugin 0.5.1, after the 21–24 Sep week: Astra/Sol reviews spent a Plus week in 2.5 days, Luna reviews did not move the counter):
 # once Codex's last usage snapshot shows the 7-day window at 80 % or more, codex-review runs every review on gpt-6-luna high and says so in its
 # REVIEWER line. Tune with CODEX_WEEKLY_DOWNGRADE_AT (0 = off), CODEX_REVIEW_MODEL_CHEAP, CODEX_REVIEW_EFFORT_CHEAP. The commit hook keeps the
