@@ -198,6 +198,7 @@ Report-first pruning of low-value tests: tests that restate the code, copied fix
 
 ## Changelog
 
+- **0.14.1** (5 Oct 2026): `CODEX_REVIEW_MODEL_SPEC` / `CODEX_REVIEW_EFFORT_SPEC` give spec reviews their own tier; `aliases.zsh` has a commented Astra-at-low trial.
 - **0.14.0** (5 Oct 2026): `ai-night` and `ai-bg` for unattended builds (see Unattended nights); the loop's handoff carries an exact `Status:` line and an Unattended runs section.
 - **0.13.2** (5 Oct 2026): one spec per build session. A batch gets Stages 1–2 in one session and a handoff in `docs/tasks/<batch>-handoff.md`; `/ai:loop <handoff>` then builds one spec per new session. The 4 Oct snowlan loop re-read a median 672k tokens per call after building 8 specs in one session.
 - **0.13.1** (4 Oct 2026): loop and `/ai:ship` reviews get a 1500 s lane and a 2100 s budget (were 1200/1500): the longest finished review took 1203 s, 6 were killed at the limit, and a call may now wait for a Codex slot. The skills' waiting rule moves from 26 to 36 minutes. The commit hook keeps 400/540.

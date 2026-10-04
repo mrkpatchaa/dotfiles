@@ -6,6 +6,7 @@
 #        CODEX_REVIEW_MODEL_RISKY=<id>  Codex model when a focus is given (auth, payments, schema…); unset → CODEX_REVIEW_MODEL
 #        CODEX_REVIEW_EFFORT=low|medium|high|xhigh|max   (unset → config.toml)
 #        CODEX_REVIEW_EFFORT_RISKY=<level>  effort when a focus is given; unset → CODEX_REVIEW_EFFORT (same model, more thinking)
+#        CODEX_REVIEW_MODEL_SPEC / CODEX_REVIEW_EFFORT_SPEC   tier for `spec` reviews only (unset → CODEX_REVIEW_MODEL / _EFFORT)
 #        The commit hook swaps in CODEX_REVIEW_MODEL_COMMIT / CODEX_REVIEW_EFFORT_COMMIT when set (small diffs, many calls).
 #        REVIEW_FALLBACK_MODELS="opencode-go/glm-5.3 opencode-go/kimi-k3 opencode-go/deepseek-v4.1-flash"
 #        OPENCODE_FREE_MODELS="…"   free models are asked before these (REVIEW_FREE=0: not for reviews; repo opt-out: git config ai-loop.freelane off)
@@ -47,6 +48,9 @@ esac
 # Model per review: the mid tier by default, the strong one only where a focus says the diff is risky. Protects the Plus quota.
 CM="${CODEX_REVIEW_MODEL:-}"; CE="${CODEX_REVIEW_EFFORT:-}"
 if [ "$MODE" = diff ] && [ -n "${FOCUS:-}" ]; then CM="${CODEX_REVIEW_MODEL_RISKY:-$CM}"; CE="${CODEX_REVIEW_EFFORT_RISKY:-$CE}"; fi
+# Spec reviews may run on their own tier (0.14.1): CODEX_REVIEW_MODEL_SPEC / CODEX_REVIEW_EFFORT_SPEC, e.g. gpt-6-astra at low ("Astra Light"
+# in the Codex app is Astra at low effort, per OpenAI support on 1 Oct 2026). Unset → the ordinary tier. The weekly downgrade still applies.
+if [ "$MODE" = spec ]; then CM="${CODEX_REVIEW_MODEL_SPEC:-$CM}"; CE="${CODEX_REVIEW_EFFORT_SPEC:-$CE}"; fi
 ASKED="$CM"   # what the caller wanted; the weekly-budget rule below may swap in the cheap tier
 codex_model() { grep -E '^[[:space:]]*model[[:space:]]*=' .codex/config.toml "$HOME/.codex/config.toml" 2>/dev/null | head -1 | sed -E 's/.*=[[:space:]]*"?([^"[:space:]]*)"?.*/\1/'; }
 
