@@ -80,7 +80,7 @@ Everything outside Claude is reached through the scripts in `bin/`, never direct
 | `implementer` | opus (Sonnet under cc-sonnet, which forces) | medium (pinned) | the worktree the loop creates and names in the brief (no `isolation: worktree` since 0.13.0) |
 | `verifier` | opus (Sonnet under cc-sonnet, which forces) | high (pinned) | the implementer's worktree; writes tests only |
 | `reviewer` | opus (Sonnet under cc-sonnet, which forces) | high (pinned) | read-only |
-| `grunt` | haiku | none (Haiku has no effort setting) | relays to `grunt-run` |
+| `grunt` | sonnet (forced the same under cc-sonnet) | medium (pinned) | relays to `grunt-run --no-claude`; does the work itself when the lane is off or limited |
 
 ```mermaid
 flowchart LR
@@ -213,10 +213,13 @@ flowchart LR
   L2 -->|"limit / stall / time-out"| L3["GRUNT_MODELS 3<br/>default qwen3.8-flash"]
   L0 -->|done| WF(["Exit 0 · WORKER: model (free)"])
   L1 & L2 & L3 -->|done| W(["Exit 0 · WORKER: model<br/>caller re-runs the tests"])
-  L3 -->|"all limited"| X(["Exit 75<br/>the implementer does the chunk itself"])
+  L3 -->|"all limited"| C["Claude Sonnet, headless<br/>GRUNT_CLAUDE_EFFORT medium"]
+  OFF(["Cheap lane off<br/>ai-lane"]) --> C
+  C -->|done| WC(["Exit 0 · WORKER: claude sonnet"])
+  C -->|"limited / failed / --no-claude"| X(["Exit 75 (76 when the lane is off)<br/>the caller does the chunk itself"])
 ```
 
-Override the order with `GRUNT_MODELS`; any OpenCode model id works. A free model that errors is skipped for 15 minutes (free periods end without notice). Each model gets `GRUNT_TIMEOUT` (2400 s) and `GRUNT_STALL_TIMEOUT` (600 s of silence). Secrets, env files, auth, payments, migrations and deploy config never go to this lane.
+Override the order with `GRUNT_MODELS`; any OpenCode model id works. The Sonnet step (0.14.2) keeps an Opus implementer's rote chunks off Opus. The `grunt` agent skips it with `--no-claude`, because it already runs on Sonnet. `GRUNT_CLAUDE=0` turns it off. A free model that errors is skipped for 15 minutes (free periods end without notice). Each model gets `GRUNT_TIMEOUT` (2400 s) and `GRUNT_STALL_TIMEOUT` (600 s of silence). Secrets, env files, auth, payments, migrations and deploy config never go to this lane.
 
 ```mermaid
 flowchart TD

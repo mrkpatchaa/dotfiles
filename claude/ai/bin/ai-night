@@ -24,15 +24,6 @@ nlog() { printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$1" "
 statuses() { grep -E '^Status:[[:space:]]*[a-z]+' "$1" 2>/dev/null | sed -E 's/^Status:[[:space:]]*([a-z]+).*/\1/' | tr '\n' ' '; }
 left() { statuses "$1" | tr ' ' '\n' | grep -Ec '^(approved|building)$'; }
 awake() { if command -v caffeinate >/dev/null 2>&1; then caffeinate -i "$@"; else "$@"; fi; }   # macOS: no idle sleep while it runs
-# limit_wait <file…> — seconds until the reset a Claude limit message names, or nothing. "resets 3:10am", "resets 4pm".
-limit_wait() { cat "$@" 2>/dev/null | "$_PY" -c '
-import re,sys,datetime as d
-t=sys.stdin.read(); m=re.search(r"(?:hit your|reached your)[^\n]{0,40}?limit[^\n]{0,20}?resets\s+(\d{1,2})(?::(\d\d))?\s*(am|pm)",t,re.I)
-if not m: sys.exit(0)
-h=int(m.group(1))%12+(12 if m.group(3).lower()=="pm" else 0); mi=int(m.group(2) or 0); n=d.datetime.now()
-r=n.replace(hour=h,minute=mi,second=0,microsecond=0)
-if r<=n: r+=d.timedelta(days=1)
-print(int((r-n).total_seconds())+120)'; }
 json_field() { "$_PY" -c 'import json,sys
 try: d=json.load(open(sys.argv[1]))
 except Exception: sys.exit(0)

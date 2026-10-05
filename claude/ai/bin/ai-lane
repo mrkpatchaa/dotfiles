@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ai-lane — show or switch the cheap lane (OpenCode through grunt-run, and codex-review's OpenCode fallbacks).
 # Usage: ai-lane                      what applies here: the switch, where it is set, the free models, the limited lanes
-#        ai-lane off [--global]       no OpenCode for this clone (--global: for every clone); grunt does the work itself on Sonnet
+#        ai-lane off [--global]       no OpenCode for this clone (--global: for every clone); rote chunks and grunt run on Sonnet
 #        ai-lane on  [--global]       back to the cheap lane (removes the git config; AI_CHEAP_LANE in the shell still wins)
 #        ai-lane free off|on [--global]   only the free models (git config ai-loop.freelane)
 # For one shell only: export AI_CHEAP_LANE=off (unset it to go back). The plugin reads the switch at every call; nothing to reload.
@@ -10,7 +10,7 @@ set -u
 scope=""; case " $* " in *" --global "*) scope="--global" ;; esac
 set -- $(printf '%s\n' "$@" | grep -v -- '--global')
 case "${1:-status}" in
-  off) git config $scope ai-loop.cheaplane off && echo "cheap lane off${scope:+ (global)}: grunt-run exits 76, codex-review skips OpenCode; the Claude agents do the work themselves" ;;
+  off) git config $scope ai-loop.cheaplane off && echo "cheap lane off${scope:+ (global)}: grunt-run runs chunks on Claude Sonnet (GRUNT_CLAUDE_EFFORT, default medium), codex-review skips OpenCode" ;;
   on)  git config $scope --unset ai-loop.cheaplane 2>/dev/null; echo "cheap lane on${scope:+ (global)}${AI_CHEAP_LANE:+ — but AI_CHEAP_LANE=$AI_CHEAP_LANE is set in this shell}" ;;
   free) case "${2:-}" in
           off) git config $scope ai-loop.freelane off && echo "free models off${scope:+ (global)}" ;;

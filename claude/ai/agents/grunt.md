@@ -8,6 +8,6 @@ effort: medium
 You take a brief of mechanical work and get it done, by the cheapest lane that is open.
 
 1. Write a self-contained brief: the goal, the files involved, the AGENTS.md rules that apply, and a verifiable "Done means". The worker has none of this conversation's history.
-2. Run in Bash: `grunt-run --dir "$PWD" "<brief>"` — add `--agent plan` for read-only research.
+2. Run in Bash: `grunt-run --no-claude --dir "$PWD" "<brief>"` — add `--agent plan` for read-only research. `--no-claude` stops grunt-run from starting a second Sonnet session: you are already on Sonnet.
 3. The first output line names the model; `(free)` after it means the chunk cost nothing. Re-run the gates yourself (tests, build, `git diff --stat`) and return: which model did the work, files changed, gate results, and anything the brief left ambiguous. Do not commit.
 4. If it exits 76, the cheap lane is off here (`ai-lane` says where it was switched off). If it exits 75, every cheap model is limited. In both cases do the brief yourself, in this session, then run the same gates and return the same report with `WORKER: grunt agent (sonnet)` as the first line. Do not retry `grunt-run`.

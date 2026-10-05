@@ -49,13 +49,24 @@ mark_limited() { local lane="$1" kind="${2:-limit}" until="" how why="" n; [ $# 
   [ "$until" -gt $(( n + MAX_SKIP )) ] && until=$(( n + MAX_SKIP ))
   printf '%s\n%s\n%s\n' "$until" "$how" "$why" > "$(lane_key "$lane")"; }
 
+# limit_wait <file…> — (ai-night, grunt-run's Sonnet fallback) seconds until the reset a Claude limit message names, or nothing. "resets 3:10am", "resets 4pm".
+limit_wait() { cat "$@" 2>/dev/null | "$_PY" -c '
+import re,sys,datetime as d
+t=sys.stdin.read(); m=re.search(r"(?:hit your|reached your)[^\n]{0,40}?limit[^\n]{0,20}?resets\s+(\d{1,2})(?::(\d\d))?\s*(am|pm)",t,re.I)
+if not m: sys.exit(0)
+h=int(m.group(1))%12+(12 if m.group(3).lower()=="pm" else 0); mi=int(m.group(2) or 0); n=d.datetime.now()
+r=n.replace(hour=h,minute=mi,second=0,microsecond=0)
+if r<=n: r+=d.timedelta(days=1)
+print(int((r-n).total_seconds())+120)'; }
+
 # norm_verdict [file] — the verdict word of a review in upper case (SHIP, NEEDS WORK, BLOCK, READY, REVISE), or nothing. Tolerates case and
 # markdown ("**Verdict:** ship"): on 4 Oct 2026 the hook's headless Claude reviews never wrote the exact `VERDICT:` line and all 56 were thrown away.
 norm_verdict() { grep -iEo 'verdict[*_` ]*:[*_` ]*(ship|needs work|block|ready|revise)' "${1:--}" 2>/dev/null | head -1 | sed -E 's/.*:[*_` ]*//' | tr '[:lower:]' '[:upper:]'; }
 
 # The cheap lane (OpenCode) can be switched off: AI_CHEAP_LANE=off for a shell, `git config ai-loop.cheaplane off` for a clone,
-# `git config --global ai-loop.cheaplane off` everywhere (bin/ai-lane sets and shows it). grunt-run then exits 76 and codex-review
-# skips its OpenCode fallbacks, so the Claude agents do the work themselves (grunt on Sonnet, the implementer on Opus).
+# `git config --global ai-loop.cheaplane off` everywhere (bin/ai-lane sets and shows it). grunt-run then runs the brief on Sonnet in a
+# headless Claude session (0.14.2; exit 76 only with --no-claude or when Sonnet fails) and codex-review skips its OpenCode fallbacks.
+# The grunt agent passes --no-claude and does the work itself on Sonnet; the implementer stays on Opus for the substantive logic.
 cheap_lane_off() { [ "${AI_CHEAP_LANE:-}" = off ] && return 0; [ "$(git ${1:+-C "$1"} config --get ai-loop.cheaplane 2>/dev/null)" = off ]; }
 
 # Status files for the plugin's review-status band (hooks/review-status.tsx): active/<pid>.json while run_lane runs a lane,

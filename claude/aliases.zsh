@@ -21,7 +21,7 @@ export CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false
 # mid-session /effort change keeps the prompt cache (Anthropic's Lydia Hallie), so dropping to medium for a rote stretch and back is free.
 # /effort ultracode = xhigh + dynamic workflows: many agents, large spend — only when you mean it.
 # Subagents inherit the session's effort unless their definition says otherwise. The ai plugin pins them: implementer opus/medium,
-# reviewer opus/high, grunt haiku (a relay to the OpenCode lane). So an xhigh main session no longer drags the build up with it.
+# reviewer opus/high, grunt sonnet/medium (a relay to the OpenCode lane; does the work itself when the lane is off). So an xhigh main session no longer drags the build up with it.
 #
 # Subagent model (0.7.0, 26 Sep 2026): Sonnet builds took too many implementer ↔ Codex review rounds (snowlan), so the implementer
 # is Opus 5.5 at medium. cc-opus and cc-fable no longer set CLAUDE_CODE_SUBAGENT_MODEL_FORCE: with it on, Claude Code ignores every
@@ -72,7 +72,8 @@ export CODEX_REVIEW_EFFORT_CHEAP="max"         # the weekly-budget downgrade tie
 # to get the exact ids, then append e.g. the Kimi K3 and GLM 5.3 ids to OPENCODE_FREE_MODELS (is_free matches the id as written).
 
 # Cheap lane off (0.12.0): `ai-lane off` per clone, `ai-lane off --global`, or for one shell `export AI_CHEAP_LANE=off` — grunt does the work
-# itself on Sonnet, codex-review has no OpenCode fallback. `ai-lane` shows what applies.
+# itself on Sonnet, the implementer's rote chunks run in a headless Sonnet session (0.14.2: GRUNT_CLAUDE_EFFORT=medium; low is
+# cheaper for pure renames), codex-review has no OpenCode fallback. `ai-lane` shows what applies.
 
 # Jev triage key: keep it out of every repo. jev-triage reads $TYPESAFE_API_KEY, else this file (chmod 600):
 #   mkdir -p ~/.config/typesafe && pbpaste > ~/.config/typesafe/api-key && chmod 600 ~/.config/typesafe/api-key
