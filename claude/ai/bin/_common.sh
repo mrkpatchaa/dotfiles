@@ -59,6 +59,16 @@ r=n.replace(hour=h,minute=mi,second=0,microsecond=0)
 if r<=n: r+=d.timedelta(days=1)
 print(int((r-n).total_seconds())+120)'; }
 
+# oc_standalone — prints --standalone when this opencode has it (2.x). In 2.x `opencode run` attaches to a shared background service
+# (`opencode serve --service`) and the session lives there: killing the client leaves the session editing the worktree. On 5 Oct 2026 an
+# abandoned grunt-run session kept editing a test file in assigame-next (anomalyco/opencode #52206, closed "not planned"). --standalone
+# gives each call a private server that exits with it, so the watchdog's kill_tree stops the work. 1.x has no service and no flag.
+# It also brings back the limit messages: 2.x `--print-logs` prints server logs "only with --standalone" (opencode run --help), so
+# under the shared service the watchdog could not see a provider limit on stderr.
+# OPENCODE_STANDALONE=0 opts out (back to the shared service). Call it once per script: it runs `opencode run --help`.
+oc_standalone() { [ "${OPENCODE_STANDALONE:-1}" = 0 ] && return 0
+  opencode run --help 2>&1 | grep -q -- '--standalone' && printf '%s' --standalone; return 0; }
+
 # norm_verdict [file] — the verdict word of a review in upper case (SHIP, NEEDS WORK, BLOCK, READY, REVISE), or nothing. Tolerates case and
 # markdown ("**Verdict:** ship"): on 4 Oct 2026 the hook's headless Claude reviews never wrote the exact `VERDICT:` line and all 56 were thrown away.
 norm_verdict() { grep -iEo 'verdict[*_` ]*:[*_` ]*(ship|needs work|block|ready|revise)' "${1:--}" 2>/dev/null | head -1 | sed -E 's/.*:[*_` ]*//' | tr '[:lower:]' '[:upper:]'; }

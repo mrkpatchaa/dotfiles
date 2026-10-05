@@ -102,12 +102,12 @@ When the work is complete, spawn a subagent to do one full quality pass over you
 fi
 command -v opencode >/dev/null 2>&1 || { claude_lane "opencode not on PATH"; echo "WORKER: none (opencode is not installed or not on PATH; no Sonnet fallback)" >&2; exit 75; }
 
-go_limited=0
+go_limited=0; OC_ISO="$(oc_standalone)"   # a private server per call: a killed run must not keep editing (see _common.sh)
 for m in $MODELS; do
   if recently_limited "$m"; then echo "grunt-run: skipping $m — back $(lane_back "$m")" >&2; continue; fi
   out="$(mktemp)"; err="$(mktemp)"
   # --print-logs: `opencode run` retries a limited provider forever in silence; the logs on stderr are where the watchdog sees the limit.
-  run_lane "grunt-run: $m" "$out" "$err" opencode run --print-logs --agent "$AGENT" --model "$m${VARIANT:+#$VARIANT}" --auto "$BRIEF"; rc=$?   # opencode 2.x: variant rides on the model id
+  run_lane "grunt-run: $m" "$out" "$err" opencode run $OC_ISO --print-logs --agent "$AGENT" --model "$m${VARIANT:+#$VARIANT}" --auto "$BRIEF"; rc=$?   # opencode 2.x: variant rides on the model id
   if [ $rc -eq 0 ]; then if is_free "$m"; then echo "WORKER: $m (free)"; else echo "WORKER: $m"; fi; note_last grunt-run "$m" done "$AGENT"; cat "$out"; rm -f "$out" "$err"; exit 0; fi
   if [ $rc -eq 200 ] || { [ $rc -lt 200 ] && failed_on_limit "$out" "$err"; }; then
     mark_limited "$m" limit "$err" "$out"; echo "grunt-run: $m is at its limit — back $(lane_back "$m"). Trying the next model" >&2

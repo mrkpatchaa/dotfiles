@@ -219,7 +219,7 @@ flowchart LR
   C -->|"limited / failed / --no-claude"| X(["Exit 75 (76 when the lane is off)<br/>the caller does the chunk itself"])
 ```
 
-Override the order with `GRUNT_MODELS`; any OpenCode model id works. The Sonnet step (0.14.2) keeps an Opus implementer's rote chunks off Opus. The `grunt` agent skips it with `--no-claude`, because it already runs on Sonnet. `GRUNT_CLAUDE=0` turns it off. A free model that errors is skipped for 15 minutes (free periods end without notice). Each model gets `GRUNT_TIMEOUT` (2400 s) and `GRUNT_STALL_TIMEOUT` (600 s of silence). Secrets, env files, auth, payments, migrations and deploy config never go to this lane.
+Override the order with `GRUNT_MODELS`; any OpenCode model id works. Each OpenCode call runs with `--standalone` on 2.x (0.14.3): a private server that dies with the call, so a killed lane stops editing. The Sonnet step (0.14.2) keeps an Opus implementer's rote chunks off Opus. The `grunt` agent skips it with `--no-claude`, because it already runs on Sonnet. `GRUNT_CLAUDE=0` turns it off. A free model that errors is skipped for 15 minutes (free periods end without notice). Each model gets `GRUNT_TIMEOUT` (2400 s) and `GRUNT_STALL_TIMEOUT` (600 s of silence). Secrets, env files, auth, payments, migrations and deploy config never go to this lane.
 
 ```mermaid
 flowchart TD

@@ -187,7 +187,7 @@ fi
 # --print-logs puts the provider's error on stderr where the watchdog reads it, and silence past AI_STALL_TIMEOUT kills the lane.
 if cheap_lane_off; then echo "codex-review: the cheap lane is off here (ai-lane) — no OpenCode fallback" >&2; fi
 if [ "${REVIEW_NO_OPENCODE:-0}" != "1" ] && ! cheap_lane_off && command -v opencode >/dev/null 2>&1; then
-  go_limited=0
+  go_limited=0; OC_ISO="$(oc_standalone)"   # a private server per call: a killed review must not run on (see _common.sh)
   # Free models (OPENCODE_FREE_MODELS) are asked before the paid fallbacks; REVIEW_FREE=0 keeps them out of reviews.
   FB=""; FREE=""; [ "${REVIEW_FREE:-1}" = 0 ] || FREE="$(free_models)"
   for m in $FREE ${REVIEW_FALLBACK_MODELS:-opencode-go/glm-5.3 opencode-go/kimi-k3 opencode-go/deepseek-v4.1-flash}; do case " $FB " in *" $m "*) ;; *) FB="$FB $m" ;; esac; done
@@ -196,11 +196,11 @@ if [ "${REVIEW_NO_OPENCODE:-0}" != "1" ] && ! cheap_lane_off && command -v openc
     fit_budget || { echo "codex-review: review budget of ${BUDGET}s used up" >&2; break; }
     out="$(mktemp)"; err="$(mktemp)"
     run_lane "codex-review: $m" "$out" "$err" env OPENCODE_PERMISSION='{"edit":"deny","bash":{"*":"deny","git diff*":"allow","git status*":"allow","git log*":"allow","git show*":"allow"}}' \
-      opencode run --print-logs --model "$m#high" --auto "$PROMPT"; rc=$?   # opencode 2.x: variant rides on the model id
+      opencode run $OC_ISO --print-logs --model "$m#high" --auto "$PROMPT"; rc=$?   # opencode 2.x: variant rides on the model id
     if [ $rc -ne 0 ] && [ $rc -lt 200 ] && variant_unavailable "$err"; then   # kimi-k3 has no `high` variant (1 Oct 2026): once more with the model's default
       echo "codex-review: $m has no high variant — retrying without one" >&2; : > "$out"; : > "$err"
       run_lane "codex-review: $m" "$out" "$err" env OPENCODE_PERMISSION='{"edit":"deny","bash":{"*":"deny","git diff*":"allow","git status*":"allow","git log*":"allow","git show*":"allow"}}' \
-        opencode run --print-logs --model "$m" --auto "$PROMPT"; rc=$?
+        opencode run $OC_ISO --print-logs --model "$m" --auto "$PROMPT"; rc=$?
     fi
     if [ $rc -eq 0 ] && [ -s "$out" ]; then
       echo "REVIEWER: $m ($(is_free "$m" && echo 'free, ')fallback — Codex unavailable)"; cat "$out"; log_review "$m" "$m" "$(verdict_of "$out")" ok "fallback; first: $(first_finding "$out")"; rm -f "$out" "$err"; exit 0
