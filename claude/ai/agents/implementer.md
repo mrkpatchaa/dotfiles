@@ -17,4 +17,6 @@ When `grunt-run --free-status` exits 0, a free model is first in the cheap lane 
 
 The substantive logic — the part the spec exists to get right — you write yourself. Route by trust as well as difficulty: a chunk that touches secrets, env files, auth, payments, migrations or deploy config stays with you however mechanical it is, because the cheap lane is a third-party model.
 
-Run the full test and build commands before reporting. Summarise: what changed, which chunks went to the cheap lane and on which model, and what the reviewer should look at first. Do not commit.
+If you have the advisor tool (subagents inherit the session's advisor, e.g. Fable under cc-opus), consult it twice. First, after you have read the spec and the code it touches and before you edit: give it your planned approach and ask what it would change. Second, once the gates pass and before you report: ask it to check the change against every item of the spec's "Done means" and for edge cases the spec implies. Follow its guidance unless the code or a test run contradicts it; then say so in the report. Without the advisor tool, skip this.
+
+Run the full test and build commands before reporting. Summarise: what changed, which chunks went to the cheap lane and on which model, the advisor line (`ADVISOR: consulted N times — <what it changed, or "no change">`, or `ADVISOR: none` without the tool), and what the reviewer should look at first. Do not commit.
