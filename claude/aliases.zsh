@@ -60,7 +60,8 @@ export CODEX_REVIEW_EFFORT_SPEC="low"
 # 0.5.2: a stored Codex limit (or a snapshot that would downgrade) older than CODEX_RECHECK_EVERY (1800 s) is re-checked with a one-word Luna turn
 # before it is believed — limits get reset, credits get bought. CODEX_RECHECK=0 trusts the stored date instead.
 
-# Free OpenCode models (plugin 0.6.0). When OpenCode Zen runs a model for free, list it here: grunt-run tries it before GRUNT_MODELS,
+# Free OpenCode models (plugin 0.6.0). When OpenCode Zen runs a model for free, list it in ~/.zshrc.local (untracked, so the lists
+# — OPENCODE_FREE_MODELS, GRUNT_MODELS, GRUNT_VARIANT, REVIEW_FALLBACK_MODELS — change without touching this repo): grunt-run tries it before GRUNT_MODELS,
 # codex-review asks it before the paid Go fallbacks (after Codex), and the agents send it more than the rote parts while `grunt-run --free-status`
 # exits 0. Ids end in -free (opencode.ai/docs/zen; `/models` in the OpenCode TUI). Free periods end without notice: a model that errors is skipped
 # for 15 min, then retried. Mind the data terms: most free models may train on what they are sent (Space Bunny Free is zero-retention; the

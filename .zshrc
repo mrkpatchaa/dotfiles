@@ -1,25 +1,75 @@
 #  ---------------------------------------------------------------------------
 #  Description: ZSH Configurations and Aliases
+#  Loaded from ~/.zshrc. Private, machine-specific settings go in ~/.zshrc.local (section 11).
+#  Order matters: zsh expands aliases inside a function when the function is defined,
+#  so a function only sees the aliases defined above it.
 #  ---------------------------------------------------------------------------
 
-#   -------------------------------
-#   1.  ENVIRONMENT CONFIGURATION
-#   -------------------------------
+DOTFILES="${${(%):-%x}:A:h}"   # this repo's folder, wherever it is cloned
 
-export PATH="/usr/local/git/bin:/sw/bin:/usr/local/bin:/usr/local/sbin:/usr/local/mysql/bin:/opt/local/bin:$PATH:$HOME/.composer/vendor/bin"
+
+#   ---------------------------------------
+#   1.  ENVIRONMENT & PATH
+#   ---------------------------------------
+
+export PATH="/usr/local/bin:$PATH"
 export EDITOR=/usr/bin/vim
 export BLOCKSIZE=1k
 
-# ZSH specific configurations
-ZSH_DISABLE_COMPFIX=true
-ENABLE_CORRECTION="true"
-COMPLETION_WAITING_DOTS="true"
+# Homebrew (on PATH via /etc/paths.d/homebrew); the prefix is the folder holding bin/brew
+(( $+commands[brew] )) && HOMEBREW_PREFIX="${HOMEBREW_PREFIX:-${commands[brew]:h:h}}"
 
-# History Configuration (Zsh Native)
+# nvm, loaded on first use (sourcing nvm.sh costs ~280 ms). The default Node is on PATH right away.
+export NVM_DIR="$HOME/.nvm"
+() {
+    local want=node
+    local -a bin
+    [[ -r $NVM_DIR/alias/default ]] && want="$(<$NVM_DIR/alias/default)"
+    case $want in
+        node|stable) bin=($NVM_DIR/versions/node/v*/bin(Nn[-1])) ;;
+        v<->*|<->*)  bin=($NVM_DIR/versions/node/v${want#v}(|.*)/bin(Nn[-1])) ;;
+    esac
+    if (( $#bin )); then
+        export PATH="$bin[1]:$PATH" NVM_BIN="$bin[1]" NVM_INC="${bin[1]:h}/include/node" NVM_CD_FLAGS=-q
+        nvm() {
+            unset -f nvm
+            # --no-use: the default Node is already on PATH, don't add it a second time
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" --no-use
+            [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+            nvm "$@"
+        }
+    else
+        # The default isn't a plain version (e.g. lts/*): load nvm now
+        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+    fi
+}
+
+# pnpm
+export PNPM_HOME="$HOME/Library/pnpm"
+case ":$PATH:" in
+  *":$PNPM_HOME/bin:"*) ;;
+  *) export PATH="$PNPM_HOME/bin:$PATH" ;;
+esac
+
+# Android
+export ANDROID_HOME=$HOME/Library/Android/sdk
+export PATH=$PATH:$ANDROID_HOME/emulator
+export PATH=$PATH:$ANDROID_HOME/platform-tools
+() { local jh; jh="$(/usr/libexec/java_home -v 21 2>/dev/null)" && export JAVA_HOME="$jh"; }
+
+export PATH=$PATH:$HOME/.maestro/bin              # Maestro
+export PATH=$PATH:$HOME/.local/bin                # Claude Code
+export PATH=$HOME/.opencode/bin:$PATH             # opencode
+
+
+#   ---------------------------------------
+#   2.  HISTORY
+#   ---------------------------------------
+
 export HISTFILE=~/.zsh_history
-export HISTSIZE=10000000
-export HISTFILESIZE=10000000
-export HISTTIMEFORMAT='%F %T '
+export HISTSIZE=10000000         # entries kept in memory
+SAVEHIST=10000000                # entries kept in the file (macOS's /etc/zshrc sets 1000)
 
 setopt BANG_HIST                 # Treat the '!' character specially during expansion
 setopt EXTENDED_HISTORY          # Write the history file in the ":start:elapsed;command" format
@@ -42,54 +92,9 @@ dedupHistory() {
 }
 
 
-#   -----------------------------
-#   2.  MAKE TERMINAL BETTER
-#   -----------------------------
-
-alias cp='cp -iv'
-alias mv='mv -iv'
-alias rm='rm -i'
-alias lsh='ls -ld .??*'                     # only show dot files
-alias mkdir='mkdir -pv'
-# alias ll='ls -FGlAhp'
-alias less='less -FSRXc'
-
-# Navigation
-alias ..='cd ../'
-alias ...='cd ../../'
-alias .3='cd ../../../'
-alias .4='cd ../../../../'
-
-# General Utilities
-alias edit='subl'                           # Opens any file in sublime editor
-alias f='open -a Finder ./'                 # Opens current directory in MacOS Finder
-alias c='clear'
-alias which='type -a'
-alias path='echo -e ${PATH//:/\\n}'
-alias fix_stty='stty sane'                  # Restore terminal settings when screwed up
-alias dodo='pmset sleepnow'                 # puts computer to sleep immediately
-alias reload='source ~/.zshrc'              # reloads the prompt
-alias cic='setopt NO_CASE_GLOB'             # Make ZSH globbing case-insensitive
-mcd () { mkdir -p "$1" && cd "$1"; }        # Makes new Dir and jumps inside
-trash () { command mv "$@" ~/.Trash ; }     # Moves a file to the MacOS trash
-ql () { qlmanage -p "$*" >& /dev/null; }    # Opens any file in MacOS Quicklook Preview
-alias suroot='sudo -E -s'
-
-# Full Recursive Directory Listing
-alias lr='ls -R | grep ":$" | sed -e '\''s/:$//'\'' -e '\''s/[^-][^\/]*\//--/g'\'' -e '\''s/^/   /'\'' -e '\''s/-/|/'\'' | less'
-
-# Search manpage (e.g., mans mplayer codec)
-mans () { man $1 | grep -iC2 --color=always $2 | less }
-
-# Remind yourself of an alias
-showa () { grep --color=always -i -a1 "$@" ~/.zshrc | grep -v '^\s*$' | less -FSRXc ; }
-
-# Weather (Modernized from old Accuweather RSS)
-alias weather='curl -s "wttr.in/?format=3"'
-
-# ---------------------------------------------------------------------------
-# ZLE KEYBINDINGS & COMPLETION (Replaces .inputrc)
-# ---------------------------------------------------------------------------
+#   ---------------------------------------
+#   3.  COMPLETION & KEY BINDINGS (replaces .inputrc)
+#   ---------------------------------------
 
 # Map Up and Down arrows to search history based on what you already typed
 # (history-search-* only matches the first word; *-line-or-beginning-search
@@ -103,6 +108,9 @@ bindkey '^[[B' down-line-or-beginning-search
 bindkey '^[OA' up-line-or-beginning-search
 bindkey '^[OB' down-line-or-beginning-search
 
+# Homebrew completions (must be on fpath before compinit)
+[ -n "$HOMEBREW_PREFIX" ] && FPATH="$HOMEBREW_PREFIX/share/zsh/site-functions:$FPATH"
+
 # Initialize the advanced completion system
 autoload -Uz compinit && compinit
 
@@ -112,37 +120,96 @@ zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
 # Use a visual menu to cycle through possible tab completions
 zstyle ':completion:*' menu select
 
-# (Standard Zsh bindings)
-bindkey "[D" backward-word
-bindkey "[C" forward-word
+# Mole completion, cached (generating it costs ~140 ms) and regenerated when mole is updated
+if (( $+commands[mole] )); then
+    () {
+        local cache="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/mole-completion.zsh"
+        if [[ ! -s $cache || ${commands[mole]:A} -nt $cache ]]; then
+            command mkdir -p "${cache:h}"
+            if mole completion zsh >| "$cache.tmp" 2>/dev/null; then command mv -f "$cache.tmp" "$cache"; else command rm -f "$cache.tmp"; fi
+        fi
+        [[ -s $cache ]] && source "$cache"
+    }
+fi
+
+# Option+Left / Option+Right jump a word (iTerm2 with Option = Normal, iTerm2 with Option = Esc+, Terminal.app)
+bindkey '^[[1;3D' backward-word
+bindkey '^[[1;3C' forward-word
+bindkey '^[^[[D' backward-word
+bindkey '^[^[[C' forward-word
+bindkey '^[b' backward-word
+bindkey '^[f' forward-word
 bindkey "^[a" beginning-of-line
 bindkey "^[e" end-of-line
 
 
-#   -------------------------------
-#   3.  FILE AND FOLDER MANAGEMENT
-#   -------------------------------
+#   ---------------------------------------
+#   4.  MODERN CLI REPLACEMENTS
+#   ---------------------------------------
 
+# eza (replaces ls)
+alias ls='eza --icons --git'          # Standard list with icons and git status
+alias ll='eza -lh --icons --git'      # Long format, human-readable sizes
+alias la='eza -lah --icons --git'     # Long format including hidden files
+alias tree='eza --tree --icons'       # Directory tree view
+[[ -o interactive ]] && cd() { builtin cd "$@" && ll; }   # List directory contents upon 'cd' (interactive only: eza hangs in scripts)
+
+# bat (replaces cat)
+alias cat='bat'
+
+# bottom (replaces top/htop)
+alias top='btm'
+
+# dust and duf (replaces du and df)
+alias du='dust'
+alias df='duf'
+
+
+#   ---------------------------------------
+#   5.  SHELL, NAVIGATION & FILES
+#   ---------------------------------------
+
+alias cp='cp -iv'
+alias mv='mv -iv'
+alias rm='rm -i'
+alias mkdir='mkdir -pv'
+alias less='less -FSRXc'
+
+# Shell
+alias c='clear'
+alias which='type -a'
+alias path='echo -e ${PATH//:/\\n}'
+alias fix_stty='stty sane'                  # Restore terminal settings when screwed up
+alias reload='source ~/.zshrc'              # reloads the prompt
+alias cic='setopt NO_CASE_GLOB'             # Make ZSH globbing case-insensitive
+alias suroot='sudo -E -s'
+alias edit='subl'                           # Opens any file in sublime editor
+alias zshconfig='vim $DOTFILES/.zshrc'      # Edit the shared config (private settings: ~/.zshrc.local)
+
+# Remind yourself of an alias (searches the shared and the private config)
+showa () { grep --color=always -i -a1 "$@" $DOTFILES/.zshrc $DOTFILES/claude/aliases.zsh ~/.zshrc.local | grep -v '^\s*$' | less -FSRXc ; }
+
+# Search manpage (e.g., mans mplayer codec)
+mans () { man $1 | grep -iC2 --color=always $2 | less }
+
+# Weather (Modernized from old Accuweather RSS)
+alias weather='curl -s "wttr.in/?format=3"'
+
+# Navigation
+alias ..='cd ../'
+alias ...='cd ../../'
+alias .3='cd ../../../'
+alias .4='cd ../../../../'
+mcd () { mkdir -p "$1" && cd "$1"; }        # Makes new Dir and jumps inside
+alias lsh='ls -ld .??*'                     # only show dot files
+
+# Full Recursive Directory Listing
+alias lr='command ls -R | grep ":$" | sed -e '\''s/:$//'\'' -e '\''s/[^-][^\/]*\//--/g'\'' -e '\''s/^/   /'\'' -e '\''s/-/|/'\'' | less'
+
+# Files
 zipf () { zip -r "$1".zip "$1" ; }
 alias numFiles='echo $(ls -1 | wc -l)'
 alias make1mb='mkfile 1m ./1MB.dat'
-
-# Cd's to frontmost window of MacOS Finder
-cdf () {
-    currFolderPath=$( /usr/bin/osascript <<EOT
-        tell application "Finder"
-            try
-        set currFolder to (folder of the front window as alias)
-            on error
-        set currFolder to (path to desktop folder as alias)
-            end try
-            POSIX path of currFolder
-        end tell
-EOT
-    )
-    echo "cd to \"$currFolderPath\""
-    cd "$currFolderPath"
-}
 
 # Extract most known archives
 extract () {
@@ -168,9 +235,9 @@ gzipsize() { echo $((`gzip -c $1 | wc -c`/1024))"KB" }
 rename() { for i in $1*; do mv "$i" "${i/$1/$2}"; done }
 
 
-#   ---------------------------
-#   4.  SEARCHING
-#   ---------------------------
+#   ---------------------------------------
+#   6.  SEARCHING
+#   ---------------------------------------
 
 alias qfind="find . -name "
 ffs () { find . -name "$@"'*' ; }
@@ -190,43 +257,18 @@ fif () {
 }
 
 
-# ---------------------------------------------------------------------------
-# MODERN CLI REPLACEMENTS
-# ---------------------------------------------------------------------------
+#   ---------------------------------------
+#   7.  PROCESSES & NETWORK
+#   ---------------------------------------
 
-# eza (replaces ls)
-alias ls='eza --icons --git'          # Standard list with icons and git status
-alias ll='eza -lh --icons --git'      # Long format, human-readable sizes
-alias la='eza -lah --icons --git'     # Long format including hidden files
-alias tree='eza --tree --icons'       # Directory tree view
-[[ -o interactive ]] && cd() { builtin cd "$@" && ll; }   # List directory contents upon 'cd' (interactive only: eza hangs in scripts)
-
-# bat (replaces cat)
-alias cat='bat'
-
-# bottom (replaces top/htop)
-alias top='btm'
-
-# dust and duf (replaces du and df)
-alias du='dust'
-alias df='duf'
-
-#   ---------------------------
-#   5.  PROCESS MANAGEMENT
-#   ---------------------------
-
+# `command top` = macOS top (plain `top` is btm, see section 4)
 findPid () { lsof -t -c "$@" ; }
-alias memHogsTop='top -l 1 -o rsize | head -20'
+alias memHogsTop='command top -l 1 -o rsize | head -20'
 alias memHogsPs='ps wwaxm -o pid,stat,vsize,rss,time,command | head -10'
 alias cpu_hogs='ps wwaxr -o pid,stat,%cpu,time,command | head -10'
-alias topForever='top -l 9999999 -s 10 -o cpu'
-alias ttop="top -R -F -s 10 -o rsize"
+alias topForever='command top -l 9999999 -s 10 -o cpu'
+alias ttop="command top -R -F -s 10 -o rsize"
 my_ps() { ps $@ -u $USER -o pid,%cpu,%mem,start,time,bsdtime,command ; }
-
-
-#   ---------------------------
-#   6.  NETWORKING
-#   ---------------------------
 
 alias myip='curl ifconfig.me'                       # Modernized public IP check
 alias localip="ifconfig | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | grep -Eo '([0-9]*\.){3}[0-9]*' | grep -v '127.0.0.1'"
@@ -236,7 +278,6 @@ alias lsock='sudo /usr/sbin/lsof -i -P'
 alias lsockU='sudo /usr/sbin/lsof -nP | grep UDP'
 alias lsockT='sudo /usr/sbin/lsof -nP | grep TCP'
 alias openPorts='sudo lsof -i | grep LISTEN'
-alias showBlocked='sudo ipfw list'
 
 ii() {
     echo -e "\nYou are logged on $HOST"
@@ -251,7 +292,7 @@ ii() {
 #   rdp: Open the Windows RDP profile, filling host/user from RDP_HOST / RDP_USER (set them in ~/.zshrc.local)
 #   Usage: rdp            or   RDP_HOST=other-pc rdp
 rdp() {
-    local tpl="$HOME/devs/dotfiles/rdp/windows.rdp.template"
+    local tpl="$DOTFILES/rdp/windows.rdp.template"
     [ -n "$RDP_HOST" ] || { echo "rdp: set RDP_HOST (and RDP_USER) in ~/.zshrc.local" >&2; return 1; }
     local out="${TMPDIR:-/tmp}/${RDP_HOST}.rdp"
     local esc='s/[\\&|]/\\&/g'   # escape sed replacement chars (DOMAIN\user has a backslash)
@@ -261,11 +302,32 @@ rdp() {
 
 
 #   ---------------------------------------
-#   7.  SYSTEMS OPERATIONS & INFORMATION
+#   8.  MACOS
 #   ---------------------------------------
 
+alias f='open -a Finder ./'                 # Opens current directory in MacOS Finder
+ql () { qlmanage -p "$*" >& /dev/null; }    # Opens any file in MacOS Quicklook Preview
+trash () { command mv "$@" ~/.Trash ; }     # Moves a file to the MacOS trash
+alias dodo='pmset sleepnow'                 # puts computer to sleep immediately
+
+# Cd's to frontmost window of MacOS Finder
+cdf () {
+    currFolderPath=$( /usr/bin/osascript <<EOT
+        tell application "Finder"
+            try
+        set currFolder to (folder of the front window as alias)
+            on error
+        set currFolder to (path to desktop folder as alias)
+            end try
+            POSIX path of currFolder
+        end tell
+EOT
+    )
+    echo "cd to \"$currFolderPath\""
+    cd "$currFolderPath"
+}
+
 alias restartdock="killall -KILL Dock"
-alias mountReadWrite='/sbin/mount -uw /'
 alias cleanupDS="find . -type f -name '*.DS_Store' -ls -delete && find . -type d -name '__MACOSX' -ls -delete"
 alias finderShowHidden='defaults write com.apple.Finder AppleShowAllFiles YES; killall Finder'
 alias finderHideHidden='defaults write com.apple.Finder AppleShowAllFiles NO; killall Finder'
@@ -273,16 +335,8 @@ alias finderHideDesktop='defaults write com.apple.Finder CreateDesktop false; ki
 alias finderShowDesktop='defaults write com.apple.Finder CreateDesktop true; killall Finder'
 alias cleanupLS="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -kill -r -domain local -domain system -domain user && killall Finder"
 
-# Disable shadow on screenshots
-defaults write com.apple.screencapture disable-shadow -bool true
-
-
-#   ---------------------------------------
-#   8.  WEB DEVELOPMENT
-#   ---------------------------------------
-
-httpHeaders () { curl -I -L "$@" ; }
-httpDebug () { curl "$@" -o /dev/null -w "dns: %{time_namelookup} connect: %{time_connect} pretransfer: %{time_pretransfer} starttransfer: %{time_starttransfer} total: %{time_total}\n" ; }
+# One-time setting (it persists, so it doesn't need to run on every shell start). On a new Mac:
+#   defaults write com.apple.screencapture disable-shadow -bool true   # no shadow on screenshots
 
 
 #   ---------------------------------------
@@ -291,19 +345,10 @@ httpDebug () { curl "$@" -o /dev/null -w "dns: %{time_namelookup} connect: %{tim
 
 alias devs='cd ~/devs'
 
-# Docker 
-docker-ip() { docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$@" }
-alias docker-cleanup='docker system prune -af --volumes' # Modernized docker cleanup
-
-# Node & JS
-alias cleannode="find . -name 'node_modules' -type d -prune -print -exec rm -rf '{}' + && find . -name 'package-lock.json' -type f -prune -print -exec rm -rf '{}' +"
-alias cleanupXcode="rm -rf ~/Library/Developer/Xcode/DerivedData/* && rm -rf ~/Library/Caches/com.apple.dt.Xcode"
-alias cleanupAll="cleanupXcode && yarn cache clean --all"
-
-# Git Helpers
+# Git
 function gitexport(){
     mkdir -p "$1"
-    git archive master | tar -x -C "$1"
+    git archive HEAD | tar -x -C "$1"
 }
 function gitcleanbranches(){
     git branch --merged | egrep -v "(^\*|master|dev|develop|main)" | xargs git branch -D
@@ -314,13 +359,51 @@ alias git-remove-untracked='git-list-untracked | xargs git branch -d'
 alias git-remove-untracked-f='git-list-untracked | xargs git branch -D'
 alias lg='lazygit'
 
+# Docker
+docker-ip() { docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$@" }
+alias docker-cleanup='docker system prune -af --volumes' # Modernized docker cleanup
+alias lzd='lazydocker'
+
+# Node & Xcode
+alias cleannode="find . -name 'node_modules' -type d -prune -print -exec rm -rf '{}' + && find . -name 'package-lock.json' -type f -prune -print -exec rm -rf '{}' +"
+alias cleanupXcode="rm -rf ~/Library/Developer/Xcode/DerivedData/* && rm -rf ~/Library/Caches/com.apple.dt.Xcode"
+alias cleanupAll="cleanupXcode && yarn cache clean --all"
+
+# HTTP
+httpHeaders () { curl -I -L "$@" ; }
+httpDebug () { curl "$@" -o /dev/null -w "dns: %{time_namelookup} connect: %{time_connect} pretransfer: %{time_pretransfer} starttransfer: %{time_starttransfer} total: %{time_total}\n" ; }
+
+# Supabase: per-project access tokens live in the macOS Keychain (service "supabase-token-<name>"),
+# and each project gets a `supabase-<name>` alias in ~/.zshrc.local
+_sb() { SUPABASE_ACCESS_TOKEN="$(security find-generic-password -a "$USER" -s "$1" -w)" supabase "${@:2}"; }
+
+# Store a token in the Keychain and create its alias (e.g. supabase-token-add myapp -> supabase-myapp)
+function supabase-token-add() {
+    local name="$1" svc="supabase-token-$1" rc="$HOME/.zshrc.local" token
+    [[ -n "$name" && "$name" != *[^a-z0-9-]* ]] || { echo "usage: supabase-token-add <name>   (a-z, 0-9, -)" >&2; return 1; }
+    if security find-generic-password -a "$USER" -s "$svc" >/dev/null 2>&1; then
+        read -q "?A token for '$name' already exists. Replace it? [y/N] " || { echo; return 1; }
+        echo
+    fi
+    read -rs "token?Paste the access token for '$name' (input hidden): "; echo
+    [[ "$token" == sbp_* && "$token" != *[^A-Za-z0-9_]* ]] || { echo "That doesn't look like a Supabase access token (sbp_...)" >&2; return 1; }
+    # Sent through stdin, so the token never shows up in the process list
+    printf 'add-generic-password -U -a "%s" -s "%s" -l "Supabase access token (%s)" -w "%s"\n' \
+        "$USER" "$svc" "$name" "$token" | security -i >/dev/null
+    [[ "$(security find-generic-password -a "$USER" -s "$svc" -w 2>/dev/null)" == "$token" ]] || { echo "Saving to the Keychain failed" >&2; return 1; }
+    local line="alias supabase-$name='_sb $svc'"
+    grep -qxF "$line" "$rc" 2>/dev/null || print -r -- "$line" >> "$rc"
+    alias "supabase-$name=_sb $svc"
+    echo "Saved. Use it with: supabase-$name <command>"
+}
+
 # Generate SSH Key
 function sshKeyGen(){
     read "?What's the name of the Key (no spaces please)? " name
     read "?What's the email associated with it? " email
-    ssh-keygen -t rsa -f ~/.ssh/id_rsa_$name -C "$email"
-    ssh-add ~/.ssh/id_rsa_$name
-    pbcopy < ~/.ssh/id_rsa_$name.pub
+    ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_$name -C "$email"
+    ssh-add ~/.ssh/id_ed25519_$name
+    pbcopy < ~/.ssh/id_ed25519_$name.pub
     echo "SSH Key copied in your clipboard"
 }
 
@@ -353,30 +436,34 @@ function compress_pdf() {
   "$1"
 }
 
-# # Auto-load NVM 
-# autoload -U add-zsh-hook
-# load-nvmrc() {
-#   local node_version="$(nvm version)"
-#   local nvmrc_path="$(nvm_find_nvmrc)"
 
-#   if [ -n "$nvmrc_path" ]; then
-#     local nvmrc_node_version=$(nvm version "$(cat "${nvmrc_path}")")
+#   ---------------------------------------
+#   10. AI LOOP (launch aliases + helper scripts on PATH)
+#   ---------------------------------------
 
-#     if [ "$nvmrc_node_version" = "N/A" ]; then
-#       nvm install
-#     elif [ "$nvmrc_node_version" != "$node_version" ]; then
-#       nvm use
-#     fi
-#   elif [ "$node_version" != "$(nvm version default)" ]; then
-#     echo "Reverting to nvm default version"
-#     nvm use default
-#   fi
-# }
-# add-zsh-hook chpwd load-nvmrc
-# load-nvmrc
+[ -f "$DOTFILES/claude/aliases.zsh" ] && source "$DOTFILES/claude/aliases.zsh"
 
-# --- ai-loop (2026-09-16): launch aliases + helper scripts on PATH ---
-[ -f "$HOME/devs/dotfiles/claude/aliases.zsh" ] && source "$HOME/devs/dotfiles/claude/aliases.zsh"
 
-# Machine-specific, untracked settings (e.g. RDP_HOST / RDP_USER for `rdp`)
+#   ---------------------------------------
+#   11. LOCAL OVERRIDES
+#   ---------------------------------------
+
+# Machine-specific, untracked settings: RDP_HOST / RDP_USER for `rdp`, supabase-<name> aliases,
+# AI workflow model lists (GRUNT_MODELS, REVIEW_FALLBACK_MODELS, OPENCODE_FREE_MODELS…)
 [ -f "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
+
+
+#   ---------------------------------------
+#   12. PROMPT & PLUGINS (keep this section last)
+#   ---------------------------------------
+
+command -v zoxide >/dev/null && eval "$(zoxide init zsh)"
+command -v starship >/dev/null && eval "$(starship init zsh)"
+[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+
+if [ -n "$HOMEBREW_PREFIX" ]; then
+    _p="$HOMEBREW_PREFIX/share/zsh-autosuggestions/zsh-autosuggestions.zsh"; [ -f "$_p" ] && source "$_p"
+    # Syntax highlighting must be the last thing loaded
+    _p="$HOMEBREW_PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"; [ -f "$_p" ] && source "$_p"
+    unset _p
+fi
