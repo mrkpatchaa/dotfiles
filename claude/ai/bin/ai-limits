@@ -4,14 +4,32 @@
 #        ai-limits clear [lane] forget one lane (codex, opencode-go, opencode-go/glm-5.3 …) or all of them — after buying credits, say
 #        ai-limits triage       jev-triage vs the real review, from the commit hook's log
 #        ai-limits log [N]      the last N (12) codex-review lane attempts: repo, mode, lane, model, verdict, outcome, seconds, note
+#        ai-limits split [D]    answered reviews of the last D (7) days by caller (hook, loop, ship, manual): count, median and p75 seconds
 set -u
 . "$(cd "$(dirname "$0")" && pwd)/_common.sh"
 if [ "${1:-}" = "clear" ]; then
   if [ -n "${2:-}" ]; then rm -f "$(lane_key "$2")"; echo "cleared $2"; else rm -f "$STATE_DIR"/*.limited; echo "cleared"; fi
   touch "$STATE_DIR/cleared"; exit 0; fi   # codex-review ignores Codex usage snapshots older than this, so a full window seen earlier does not re-mark Codex at once
+if [ "${1:-}" = "split" ]; then
+  L="$STATE_DIR/reviews.log"; [ -s "$L" ] || { echo "no review log yet ($L)"; exit 0; }
+  "$_PY" - "$L" "${2:-7}" <<'PY'
+import sys, time, statistics as st, collections as C
+path, days = sys.argv[1], int(sys.argv[2]); since = time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(time.time() - days * 86400))
+by = C.defaultdict(list)
+for line in open(path, encoding='utf-8', errors='replace'):
+    f = line.rstrip('\n').split('\t')
+    if len(f) < 8 or f[0] < since or f[6] != 'ok': continue
+    caller = f[9] if len(f) > 9 and f[9] else 'unknown (before 0.14.7)'
+    by[(caller, f[2])].append(int(f[7].rstrip('s') or 0))
+print(f"Answered reviews since {since[:10]}, by caller and mode (seconds from the first lane attempt):")
+for (c, m), v in sorted(by.items()):
+    v.sort(); print(f"  {c:24} {m:5} {len(v):4} reviews  median {st.median(v):5.0f}  p75 {v[int(0.75 * (len(v) - 1))]:5d}  under 60 s: {sum(x < 60 for x in v)}")
+if not by: print("  none")
+PY
+  exit 0; fi
 if [ "${1:-}" = "log" ]; then
   L="$STATE_DIR/reviews.log"; [ -s "$L" ] || { echo "no review log yet ($L) — codex-review writes it since plugin 0.5.1"; exit 0; }
-  tail -n "${2:-12}" "$L" | awk -F'\t' '{printf "%s  %-15s %-4s %-30s %-10s %-8s %5s  %s\n", $1, substr($2,1,15), $3, $4" ("$5")", $6, $7, $8, $9}'
+  tail -n "${2:-12}" "$L" | awk -F'\t' '{printf "%s  %-15s %-4s %-6s %-30s %-10s %-8s %5s  %s\n", $1, substr($2,1,15), $3, ($10==""?"-":$10), $4" ("$5")", $6, $7, $8, $9}'
   exit 0; fi
 if [ "${1:-}" = "triage" ]; then
   L="$STATE_DIR/jev-triage.log"; [ -s "$L" ] || { echo "no triage log yet ($L)"; exit 0; }
@@ -26,12 +44,16 @@ if [ "${1:-}" = "triage" ]; then
   first="$(head -1 "$L" | cut -c1-10)"; rows=$(wc -l < "$L" | tr -d ' ')
   judged=$(awk -F'\t' '$5!="not-run" && $5!="-"' "$L" | wc -l | tr -d ' ')
   bad=$(awk -F'\t' '$4=="SKIP" && $5!="SHIP" && $5!="not-run"' "$L" | wc -l | tr -d ' ')
+  skips=$(awk -F'\t' '$4=="SKIP" && $5!="not-run" && $5!="-"' "$L" | wc -l | tr -d ' ')   # SKIPs that still got a real review (shadow mode)
+  unchecked=$(awk -F'\t' '$4=="SKIP" && $5=="not-run"' "$L" | wc -l | tr -d ' ')
+  modes=$(awk -F'\t' '{print $3}' "$L" | sort | uniq -c | awk '{printf "%s%s %s", (NR>1?", ":""), $1, $2}')
   start=$(date -j -f '%Y-%m-%d' "$first" +%s 2>/dev/null || date -d "$first" +%s 2>/dev/null || echo 0)
   days=$(( start > 0 ? ( $(date +%s) - start ) / 86400 : 0 ))
-  echo; echo "Shadow period: $rows rows since $first ($days days), $judged with a real review to compare against."
+  echo; echo "Period: $rows rows since $first ($days days; mode: $modes), $judged with a real review to compare against."
+  echo "SKIP verdicts: $skips compared with a real review, $unchecked skipped the review unchecked (mode on)."
   if [ "$bad" -gt 0 ]; then echo "Decision: stay in shadow — $bad SKIP verdict(s) where the review did not say SHIP. Read them above."
-  elif [ "$days" -ge 14 ] && [ "$judged" -ge 30 ]; then echo "Decision: ready. No bad SKIP in $days days and $judged reviews: 'git config ai-loop.jevtriage on' in the repos you choose."
-  else echo "Decision: keep going — needs 14 days and 30 compared reviews with no bad SKIP (now $days days, $judged reviews)."; fi
+  elif [ "$days" -ge 14 ] && [ "$judged" -ge 30 ] && [ "$skips" -ge 20 ]; then echo "Decision: ready. No bad SKIP in $days days, $judged reviews and $skips compared SKIPs: 'git config ai-loop.jevtriage on' in the repos you choose."
+  else echo "Decision: not proven — needs 14 days, 30 compared reviews and 20 SKIPs compared with a real review, with no bad SKIP (now $days days, $judged reviews, $skips SKIPs). Only shadow mode reviews a SKIP."; fi
   exit 0
 fi
 found=0

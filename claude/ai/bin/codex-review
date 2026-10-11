@@ -78,11 +78,13 @@ verdict_of() { norm_verdict "$1"; }
 weekly_used() { "$_PY" "$_BIN/_limits.py" codex-usage --weekly --since "$(mtime "$STATE_DIR/cleared")" 2>/dev/null | tr -cd '0-9'; }   # 7-day window %, empty when unknown
 REPO="$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")"
 # log_review <lane> <model> <verdict> <outcome> <note> — one tab-separated line per lane attempt in $STATE_DIR/reviews.log (`ai-limits log`)
+# Column 10 is the caller (0.14.7): REVIEW_CALLER=hook|loop|ship, else manual. The 60 s target in lab notes applies to hook rows only.
+CALLER="${REVIEW_CALLER:-manual}"
 LANE_DETAIL="$MODE${FOCUS:+ · focus}"
-log_review() { case "$4" in ok) note_last codex-review "${2:-$1}" "VERDICT: ${3:--}" "$MODE" ;; none) note_last codex-review none "no reviewer answered" "$MODE" ;; esac; printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%ss\t%s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$REPO" "$MODE" "$1" "${2:-default}" "${3:--}" "$4" "$(( $(now) - T0 ))" "$(printf '%s' "$5" | tr '\t\n' '  ' | cut -c1-220)" >> "$STATE_DIR/reviews.log"; }
+log_review() { case "$4" in ok) note_last codex-review "${2:-$1}" "VERDICT: ${3:--}" "$MODE" ;; none) note_last codex-review none "no reviewer answered" "$MODE" ;; esac; printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%ss\t%s\t%s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$REPO" "$MODE" "$1" "${2:-default}" "${3:--}" "$4" "$(( $(now) - T0 ))" "$(printf '%s' "$5" | tr '\t\n' '  ' | cut -c1-220)" "$CALLER" >> "$STATE_DIR/reviews.log"; }
 fail_note() {  # fail_note <lane> <rc> <why> <out> <err> — for the log: the reset time and the lane's words, or the last useful stderr line
   local t; if [ "$3" = limit ]; then echo "back $(lane_back "$1"); $(sed -n '3p' "$(lane_key "$1")" | sed -E 's/^.*"message": ?"//')"; return; fi
-  t="$(grep -v ' working, ' "$5" 2>/dev/null | grep -i -m1 -A2 'error' | tr '\n' ' ' | sed 's/ *$//')"; [ -n "$t" ] || t="$(grep -E '^[^ +-]' "$5" 2>/dev/null | tail -1)"
+  t="$(grep -v -e ' working, ' -e '^Reading additional input from stdin' "$5" 2>/dev/null | grep -i -m1 -A2 'error' | tr '\n' ' ' | sed 's/ *$//')"; [ -n "$t" ] || t="$(grep -E '^[^ +-]' "$5" 2>/dev/null | grep -v '^Reading additional input from stdin' | tail -1)"
   [ -n "$t" ] || t="$(tail -c 300 "$4" 2>/dev/null | tail -1)"; echo "exit $2; $t (stderr: $STATE_DIR/$(printf '%s' "$1" | tr '/:' '__').stderr)"; }
 # Parallel cap (0.13.0): at most CODEX_MAX_PARALLEL Codex reviews at once, across repos and sessions. On 4 Oct 2026 up to 9 ran together:
 # slower reviews, more lane timeouts, and the 5-hour window spent by 14:02. A slot is a directory holding its owner's pid; a slot whose owner
