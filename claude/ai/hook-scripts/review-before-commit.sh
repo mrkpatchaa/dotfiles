@@ -46,7 +46,7 @@ if [ -z "$changed" ]; then hlog "skipped: nothing changed"; echo "ai-loop: nothi
 if [ "${AI_HOOK_REVIEW_DOCS:-0}" != 1 ] && [ -z "$(printf '%s\n' "$changed" | grep -Ev '^docs/|\.(md|mdx|txt)$')" ]; then
   hlog "skipped: docs only"; echo "ai-loop: docs-only change — no review (AI_HOOK_REVIEW_DOCS=1 reviews it)"; exit 0; fi
 # New files are part of the change but not of `git diff HEAD`: name them in the prompt (two of the 4 Oct reviews saw an empty diff).
-untracked="$(git ls-files --others --exclude-standard 2>/dev/null | head -40 | tr '\n' ' ')"
+untracked="$(git ls-files --others --exclude-standard 2>/dev/null | grep -v '^docs/tasks/' | head -40 | tr '\n' ' ')"
 note="${untracked:+New files not yet tracked by git are part of this change too; read them: $untracked}"
 
 mode="$(git config --get ai-loop.jevtriage 2>/dev/null)"; mode="${mode:-${JEV_TRIAGE:-off}}"
@@ -73,7 +73,7 @@ claude_fallback() {
   [ "$left" -ge 120 ] || { echo "only ${left}s of the hook left"; return 1; }
   local spec out pid t; spec="$(sed '1,/^---$/{/^---$/!d}; 1,/^---$/d' "$BIN/../agents/reviewer.md")"
   out="$(mktemp)"
-  printf '%s\n\nReview the change about to be committed in this repository: run `git diff HEAD` (and `git status` for new files).%s%s Print only the report.\n\nFormat, whatever other writing rules say: line 1 is exactly `REVIEWER: claude reviewer agent (same vendor as the author)`. Line 2 is exactly one of `VERDICT: SHIP`, `VERDICT: NEEDS WORK`, `VERDICT: BLOCK`. The hook reads these two lines; a review without them is lost.\n' \
+  printf '%s\n\nReview the change about to be committed in this repository: run `git diff HEAD -- . \047:(exclude)docs/tasks\047` (and `git status` for new files). Leave out everything under docs/tasks/: run notes and screenshots are not code to review.%s%s Print only the report.\n\nFormat, whatever other writing rules say: line 1 is exactly `REVIEWER: claude reviewer agent (same vendor as the author)`. Line 2 is exactly one of `VERDICT: SHIP`, `VERDICT: NEEDS WORK`, `VERDICT: BLOCK`. The hook reads these two lines; a review without them is lost.\n' \
     "$spec" "${focus:+ Focus especially on: $focus.}" "${note:+ $note}" > "$out.prompt"
   claude -p --model "${AI_HOOK_CLAUDE_MODEL:-opus}" --effort "${AI_HOOK_CLAUDE_EFFORT:-high}" \
     --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*)" \
