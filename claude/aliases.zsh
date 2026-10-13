@@ -31,13 +31,16 @@ export CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false
 # Subagent effort: only an agent's `effort:` line sets it (no env var for subagents alone; CLAUDE_CODE_EFFORT_LEVEL would override
 # main and subagents together and lock /effort). Agents without one inherit the session's level.
 
-alias cc-fable="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL=opus claude --model fable --effort high"      # no advisor: a Fable main only accepts a Fable advisor
-alias cc-opus="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL=opus claude --model 'opus[1m]' --effort high --autocompact 400k --advisor fable"  # 1M context (included on Max); quoted because zsh reads [1m] as a glob. --autocompact 400k (9 Oct 2026): compact at 400k, not near 967k — every call re-reads the whole context, and one replay of a week measured about 29% less weekly usage; /autocompact auto for one session that needs the full window. Fable advisor on by default since 5 Oct 2026, on trial for a few days: Fable reads the session and weighs in before a plan, on a repeated error and before done, while Opus keeps building. Fable has its own limit (two sessions stopped on it, 4 Oct 03:11 UTC): /advisor off mid-session, or remove the flag if the trial ends
+# Remote Control (0.14.10): every cc-* session connects to claude.ai/code and the Claude app at start, so it can be driven from the phone.
+# The flag sits right after `claude`: it takes an optional session name, and placed last it would swallow a prompt passed to the alias.
+# Plain `claude` and `claude -p` (ai-night) stay off. Mid-session: /remote-control shows the QR code or disconnects.
+alias cc-fable="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL=opus claude --remote-control --model fable --effort high"      # no advisor: a Fable main only accepts a Fable advisor
+alias cc-opus="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL=opus claude --remote-control --model 'opus[1m]' --effort high --autocompact 400k --advisor fable"  # 1M context (included on Max); quoted because zsh reads [1m] as a glob. --autocompact 400k (9 Oct 2026): compact at 400k, not near 967k — every call re-reads the whole context, and one replay of a week measured about 29% less weekly usage; /autocompact auto for one session that needs the full window. Fable advisor on by default since 5 Oct 2026, on trial for a few days: Fable reads the session and weighs in before a plan, on a repeated error and before done, while Opus keeps building. Fable has its own limit (two sessions stopped on it, 4 Oct 03:11 UTC): /advisor off mid-session, or remove the flag if the trial ends
 # Sonnet drives, Opus is consulted at decision points (before an approach, on a recurring error, before "done").
 # Counts toward the Max window; each consult re-reads the whole transcript uncached, so keep these sessions short.
 # Mid-session: /advisor off · /advisor opus. Stays off if DISABLE_TELEMETRY (or anything blocking feature flags) is set.
-alias cc-sonnet="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 CLAUDE_CODE_SUBAGENT_MODEL=sonnet claude --model sonnet --effort high --advisor opus"
-alias cc-sonnet-solo="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 CLAUDE_CODE_SUBAGENT_MODEL=sonnet claude --model sonnet --effort high"   # the old cc-sonnet, for comparing /usage
+alias cc-sonnet="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 CLAUDE_CODE_SUBAGENT_MODEL=sonnet claude --remote-control --model sonnet --effort high --advisor opus"
+alias cc-sonnet-solo="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 CLAUDE_CODE_SUBAGENT_MODEL=sonnet claude --remote-control --model sonnet --effort high"   # the old cc-sonnet, for comparing /usage
 
 # Codex review tiers (read by codex-review, so also by the commit hook, /ai:loop and /ai:ship). Plus quota is the scarce budget.
 # Ids from OpenAI's model list (22 Sep 2026: GPT-6 Sol and Luna on Plus, half the price of the 5.6 pair). Needs a Codex CLI that lists them
