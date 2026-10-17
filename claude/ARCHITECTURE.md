@@ -134,7 +134,7 @@ sequenceDiagram
   end
   Main->>Rev: Stage 4: codex-review diff <base> [focus]
   Rev-->>Main: VERDICT (or exit 75 → reviewer agent)
-  loop Stage 5: at most two fix rounds
+  loop Stage 5: at most two fix rounds, re-reviews by codex-review recheck
     Main->>Impl: findings as the brief
     Impl-->>Main: fixes
     Main->>Rev: re-run Stage 4
@@ -142,7 +142,7 @@ sequenceDiagram
   Main->>You: report: files, both verdicts and who gave them, verify result, cheap-lane models, gotcha proposals
 ```
 
-The loop stops for you up to three times: for the open questions before the spec (skipped when the request answers them), after the spec review (step "yes") and on a second BLOCK in Stage 5. It never merges.
+The loop stops for you up to three times: for the open questions before the spec (skipped when the request answers them), after the spec review (step "yes") and after round 2 of Stage 5 when findings are still open (0.15.0; was: a second BLOCK). It never merges.
 
 ---
 
@@ -238,7 +238,7 @@ When a free model is on, the implementer, `/ai:loop`, the `grunt` agent and each
 flowchart LR
   subgraph ship["/ai:ship"]
     direction TB
-    S1["codex-review diff base<br/>(75 → reviewer agent)"] --> S2["Fix BLOCK + agreed NEEDS WORK"]
+    S1["codex-review recheck base<br/>(stamp reuse · 75 → reviewer agent)"] --> S2["Fix P0/P1 + one-line P2s"]
     S2 --> S3["Review once more · run tests and build"]
     S3 --> S4["AI_LOOP_SKIP_REVIEW=1 git commit<br/>message ends with the verdict"]
   end

@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""test-scan — rank a repo's test files for /ai:test-audit, with no model call (0.17.0).
+Usage: test-scan [path] [--durations report.json …] [--top 25] [--out file.csv]
+  path         folder to scan (default: the whole repo; run it from inside the repo)
+  --durations  a JSON report from the test runner (vitest --reporter=json --outputFile=…, jest --json --outputFile=…);
+               adds the seconds per file. Several may be given.
+Writes a CSV (default docs/tasks/test-scan-<date>.csv) and prints totals per folder and the top files.
+Signs counted per file: mocks of the repo's own modules, snapshots, tests that read the source, tests with fewer
+assertions than test cases, weak assertions only (toBeDefined, toBeTruthy, toHaveBeenCalled without With),
+test titles repeated in the same folder. They point at where to read first; they decide nothing.
+"""
+import collections, csv, datetime as dt, json, os, re, subprocess, sys
+
+TEST_RE = re.compile(r'(\.test\.|\.spec\.|_test\.|(^|/)test_[^/]*\.py$|/__tests__/|(^|/)tests?/|/e2e/|(^|/)\.maestro/)')
+SKIP_RE = re.compile(r'(^|/)(fixtures?|__snapshots__|snapshots?|__fixtures__|testdata)/|\.(snap|png|jpe?g|webp|gif|json|ya?ml|csv|txt|md|sql)$')
+CODE_EXT = ('.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.kt', '.swift')
+E2E_RE = re.compile(r'(^|/)(e2e|\.maestro|playwright|integration|__integration__)(/|$)|\.e2e\.')   # e2e and integration: the boundary tests to keep
+CASE_RE = re.compile(r'(?m)^\s*(?:it|test)(?:\.(?:each|concurrent|only|skip)(?:\([^)]*\))?)?\s*\(|^\s*Deno\.test\s*\(|^\s*(?:async\s+)?def\s+test_\w+')
+TITLE_RE = re.compile(r'(?m)^\s*(?:it|test)\s*\(\s*([\'"`])(.+?)\1')
+ASSERT_RE = re.compile(r'\bexpect\s*[\.(]|\bassert(?:Equals|Strict|Rejects|Throws|Match)?\s*[\(.]|^\s*assert\s', re.M)
+WEAK_RE = re.compile(r'\.(toBeDefined|toBeTruthy|not\.toBeNull|not\.toBeUndefined|toHaveBeenCalled)\(\s*\)')
+MOCK_RE = re.compile(r'\b(?:vi|jest)\.(?:mock|doMock)\(\s*[\'"`](\.{1,2}/|@/|~/|src/|@app/|@shared/)|\bmock\.module\(\s*[\'"`](\.{1,2}/|@/)|\bpatch\(\s*[\'"](?!os\.|time\.|datetime|requests|httpx)')
+SNAP_RE = re.compile(r'toMatch(?:Inline)?Snapshot\(|toMatchFileSnapshot\(|snapshot\.assert')
+SRC_RE = re.compile(r'(readFileSync|readFile|Deno\.readTextFile|open)\([^)\n]*(src/|\.tsx?[\'"`]|\.jsx?[\'"`]|\.py[\'"])|\?raw[\'"`]')
+
+def git(*a):
+    return subprocess.run(['git', *a], capture_output=True, text=True).stdout
+
+def main(argv):
+    path, durs, top, out = '.', [], 25, None
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == '--durations': durs.append(argv[i + 1]); i += 2
+        elif a == '--top': top = int(argv[i + 1]); i += 2
+        elif a == '--out': out = argv[i + 1]; i += 2
+        elif a in ('-h', '--help'): print(__doc__); return 0
+        else: path = a; i += 1
+    root = git('rev-parse', '--show-toplevel').strip()
+    if not root: print('test-scan: run it inside a git repo', file=sys.stderr); return 66
+    os.chdir(root)
+    rel = os.path.relpath(os.path.abspath(path), root) if path != '.' else ''
+    files = [f for f in git('ls-files', '--', rel or '.').splitlines()
+             if TEST_RE.search(f) and not SKIP_RE.search(f) and f.endswith(CODE_EXT)]
+    added = {}
+    for line in git('log', '--diff-filter=A', '--name-only', '--format=@%as').splitlines():
+        if line.startswith('@'): day = line[1:]
+        elif line: added[line] = day   # newest first: the last write wins, which is the first add
+    secs = collections.Counter()
+    for d in durs:
+        try: j = json.load(open(d))
+        except Exception as e: print(f'test-scan: cannot read {d}: {e}', file=sys.stderr); continue
+        for r in j.get('testResults', []):
+            name = os.path.relpath(r.get('name', ''), root)
+            s = r.get('endTime', 0) - r.get('startTime', 0) if r.get('endTime') else (r.get('perfStats') or {}).get('runtime', 0)
+            secs[name] += (s or 0) / 1000
+    today = dt.date.today(); rows = []; titles = collections.defaultdict(collections.Counter)
+    for f in files:
+        try: t = open(f, errors='replace').read()
+        except OSError: continue
+        n = t.count('\n') + 1; cases = len(CASE_RE.findall(t)); asserts = len(ASSERT_RE.findall(t))
+        for m in TITLE_RE.finditer(t): titles[os.path.dirname(f)][m.group(2).strip()] += 1
+        kind = 'e2e' if E2E_RE.search(f) else 'unit'
+        a = added.get(f, ''); age = (today - dt.date.fromisoformat(a)).days if a else 9999
+        r = dict(file=f, kind=kind, lines=n, cases=cases, asserts=asserts, mocks=len(MOCK_RE.findall(t)), snapshots=len(SNAP_RE.findall(t)),
+                 reads_source=len(SRC_RE.findall(t)), weak=len(WEAK_RE.findall(t)), added=a, seconds=round(secs.get(f, 0), 1))
+        r['few_asserts'] = int(cases > 0 and asserts < cases)
+        r['weak_only'] = int(r['weak'] > 0 and r['weak'] >= asserts)
+        rows.append(r); r['_age'] = age
+    for r in rows:
+        r['dup_titles'] = sum(1 for m in TITLE_RE.finditer(open(r['file'], errors='replace').read()) if titles[os.path.dirname(r['file'])][m.group(2).strip()] > 1)
+        smell = (0.5 * (r['mocks'] > 0) + 0.5 * (r['snapshots'] > 0) + 1.0 * (r['reads_source'] > 0) + 0.5 * r['few_asserts']
+                 + 0.5 * r['weak_only'] + 0.3 * (r['dup_titles'] > 0))
+        r['score'] = round(r['lines'] * (1 + smell) * (0.5 if r['kind'] == 'e2e' else 1) * (1.2 if r['_age'] <= 60 else 1)
+                           + 10 * r['seconds'])
+    rows.sort(key=lambda r: -r['score'])
+    out = out or f'docs/tasks/test-scan-{today.isoformat()}.csv'
+    os.makedirs(os.path.dirname(out) or '.', exist_ok=True)
+    cols = ['file', 'kind', 'lines', 'cases', 'asserts', 'mocks', 'snapshots', 'reads_source', 'weak', 'few_asserts', 'weak_only', 'dup_titles', 'seconds', 'added', 'score']
+    with open(out, 'w', newline='') as fh:
+        w = csv.DictWriter(fh, fieldnames=cols, extrasaction='ignore'); w.writeheader(); w.writerows(rows)
+    prod = sum(1 for f in git('ls-files', '--', rel or '.').splitlines() if f.endswith(CODE_EXT) and not TEST_RE.search(f))
+    print(f'test-scan: {len(rows)} test files, {sum(r["lines"] for r in rows)} lines ({sum(r["lines"] for r in rows if r["kind"] == "e2e")} e2e), '
+          f'{sum(1 for r in rows if r["_age"] <= 30)} added in 30 days · {prod} non-test code files · CSV: {out}')
+    g = collections.defaultdict(lambda: collections.Counter())
+    for r in rows:
+        k = '/'.join(r['file'].split('/')[:2]) if '/' in r['file'] else '.'
+        c = g[k]; c['files'] += 1; c['lines'] += r['lines']; c['new60'] += r['_age'] <= 60; c['mocks'] += r['mocks'] > 0
+        c['snap'] += r['snapshots'] > 0; c['src'] += r['reads_source'] > 0; c['weak'] += r['few_asserts'] or r['weak_only']; c['sec'] += r['seconds']
+    print('\nfolder | files | lines | added ≤60 d | files with: mocks · snapshots · source reads · few/weak asserts | seconds')
+    for k, c in sorted(g.items(), key=lambda z: -z[1]['lines']):
+        print(f"{k} | {c['files']} | {c['lines']} | {c['new60']} | {c['mocks']} · {c['snap']} · {c['src']} · {c['weak']} | {round(c['sec'])}")
+    print(f'\ntop {top} files to read first (score = lines × signs, e2e halved, +20% when added ≤ 60 days, +10 per second):')
+    for r in rows[:top]:
+        signs = ','.join(k for k in ('mocks', 'snapshots', 'reads_source', 'few_asserts', 'weak_only', 'dup_titles') if r[k])
+        print(f"{r['score']:>7} {r['lines']:>5} lines {r['cases']:>3} cases {r['kind']:4} {r['added'] or '?':10} {signs or '-':38} {r['file']}")
+    return 0
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

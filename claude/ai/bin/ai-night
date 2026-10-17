@@ -4,6 +4,8 @@
 #   ai-night docs/tasks/<batch>-handoff.md [more handoffs…]   (paths absolute or relative to where you run it)
 #   ai-night --smoke          5-minute check of what headless runs can do on this machine (run it once, before the first night)
 #   ai-night --report [N]     the last N lines of the night log (default 20)
+#   ai-night --audit <repo> <folder>… [--dry-run]   /ai:test-audit Stages 1–2 per folder, one fresh session each (0.17.0); each run writes
+#                             docs/tasks/test-audit-<folder>.md for you to approve in the morning. AI_NIGHT_AUDIT_EFFORT=medium
 # Options: --parallel 2   handoffs of different repos side by side (default 1, at most 2: Claude's limits, and 3 Codex slots)
 #          --max-specs N  specs per handoff in one run (default 20)     --dry-run   say what would run, start nothing
 # Env:     AI_NIGHT_MODEL=opus  AI_NIGHT_EFFORT=high  AI_NIGHT_PERMISSION=auto  AI_NIGHT_MAX_TURNS=400  AI_NIGHT_MAX_WAIT=21600 (longest limit wait, s)
@@ -61,6 +63,29 @@ run_handoff() {  # run_handoff <absolute handoff path>
   done
   rm -rf "$ND/lock-$name"; }
 
+audit() {  # audit <repo> <folder>… — read-only test audits while you are away; deletions wait for your yes (0.17.0)
+  local repo f slug base out err t0 sec rc w cost
+  repo="$(cd "${1:-.}" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" || { say "--audit: ${1:-.} is not in a git repo"; return 66; }; shift
+  local folders="" a; for a in "$@"; do if [ "$a" = --dry-run ]; then DRY=1; else folders="$folders $a"; fi; done   # --dry-run anywhere
+  [ -n "$folders" ] || { say "--audit: name at least one folder (relative to the repo), e.g. web/src"; return 64; }
+  [ "$DRY" = 1 ] || command -v claude >/dev/null 2>&1 || { say "claude is not on PATH"; return 69; }
+  for f in $folders; do
+    slug="$(printf '%s' "$f" | tr '/' '-')"
+    while :; do
+      base="$ND/$(date '+%Y%m%d-%H%M%S')-audit-$(basename "$repo")-$slug"; out="$base.json"; err="$base.err"
+      if [ "$DRY" = 1 ]; then say "dry run: (cd $repo && claude -p \"/ai:test-audit $f unattended\" --model $MODEL --effort ${AI_NIGHT_AUDIT_EFFORT:-medium} --permission-mode $PERM --max-turns $TURNS ${BUDGET_ARGS[*]:-})"; break; fi
+      say "audit: $(basename "$repo")/$f"; t0="$(now)"
+      ( cd "$repo" && AUTO_HANDOFF_DISABLE=1 CLAUDE_CODE_AUTO_COMPACT_WINDOW="$ACW" awake claude -p "/ai:test-audit $f unattended" --model "$MODEL" --effort "${AI_NIGHT_AUDIT_EFFORT:-medium}" \
+          --permission-mode "$PERM" --max-turns "$TURNS" ${BUDGET_ARGS[@]+"${BUDGET_ARGS[@]}"} --output-format json ) > "$out" 2> "$err" < /dev/null; rc=$?
+      sec=$(( $(now) - t0 )); cost="$(json_field "$out" total_cost_usd)"; w="$(limit_wait "$out" "$err")"
+      if [ -n "$w" ]; then
+        if [ "$w" -le "$MAXWAIT" ]; then say "Claude limit — waiting $(fmt_dur "$w"), then the same folder again"; nlog "$(basename "$repo")" "audit:$f" - limit "wait $(fmt_dur "$w")"; sleep "$w"; continue; fi
+        say "Claude limit resets in $(fmt_dur "$w") — stopping"; nlog "$(basename "$repo")" "audit:$f" - stopped "limit in $(fmt_dur "$w")"; return 0
+      fi
+      nlog "$(basename "$repo")" "audit:$f" - "$([ "$rc" = 0 ] && echo ok || echo error)" "exit $rc; ${sec}s; ${cost:+\$$cost; }docs/tasks/test-audit-$slug.md"; break
+    done
+  done; }
+
 smoke() {  # three questions the docs leave open, asked of a throwaway repo with a cheap model
   local d f t0 sec out
   command -v claude >/dev/null 2>&1 || { say "claude is not on PATH"; return 1; }
@@ -83,7 +108,7 @@ smoke() {  # three questions the docs leave open, asked of a throwaway repo with
   else echo "    it ends after ${sec}s and the command is dropped: the unattended rule (ai-bg, foreground subagents) is required"; fi
   echo "Throwaway repo: $d (delete it when you like). Paste these lines to Claude in Cowork."; }
 
-case "${1:-}" in --smoke) smoke; exit $? ;; --report) tail -n "${2:-20}" "$LOG" 2>/dev/null | column -t -s "$(printf '\t')" 2>/dev/null || tail -n "${2:-20}" "$LOG"; exit 0 ;; -h|--help|"") sed -n '2,19p' "$0" >&2; exit 64 ;; esac
+case "${1:-}" in --smoke) smoke; exit $? ;; --audit) shift; audit "$@"; exit $? ;; --report) tail -n "${2:-20}" "$LOG" 2>/dev/null | column -t -s "$(printf '\t')" 2>/dev/null || tail -n "${2:-20}" "$LOG"; exit 0 ;; -h|--help|"") sed -n '2,19p' "$0" >&2; exit 64 ;; esac
 H=""
 while [ $# -gt 0 ]; do case "$1" in
   --parallel) PAR="${2:-1}"; shift 2 ;; --max-specs) MAXSPECS="${2:-20}"; shift 2 ;; --dry-run) DRY=1; shift ;;

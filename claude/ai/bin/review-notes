@@ -1,0 +1,246 @@
+#!/usr/bin/env python3
+"""review-notes — every Codex review finding, kept for later (0.18.0).
+codex-review calls `review-notes record …` after each review (loop, ship, hook, manual). Findings go to
+$STATE_DIR/findings.jsonl; for branch reviews (not the commit hook, not specs) the open ones also go to
+docs/tasks/review-notes/<branch>.md in the reviewed checkout (one file per branch: no merge conflicts).
+
+  review-notes [repo] [--branch B] [--all]      open findings per branch of a repo (default: this repo); --all adds closed ones
+  review-notes [repo] --write                   rebuild docs/tasks/review-notes/<branch>.md for every branch with open findings
+  review-notes [repo] --recheck [--all-branches] [--limit 40]
+                                                ask Codex (gpt-6-luna, read-only) whether each open finding still holds in the
+                                                current checkout: FIXED / OPEN / GONE. Default: this branch's findings only.
+  review-notes --stats [--since YYYY-MM-DD]     counts per repo, level and folder; folders where findings recur
+  review-notes backfill [--since 2026-10-10]    read past reviews from ~/.codex/sessions (no model call)
+"""
+import datetime as dt, hashlib, json, os, re, subprocess, sys, time, collections
+
+STATE = os.path.join(os.environ.get('XDG_STATE_HOME') or os.path.expanduser('~/.local/state'), 'ai-loop')
+LOG = os.path.join(STATE, 'findings.jsonl')
+START = re.compile(r'^\s*(?:[-*•]\s+|\d+[.)]\s+|\*\*\s*\[?(?:P[0-3]|Critical|High|Required|Medium|Low)|\[P[0-3]\])', re.I)
+LEVEL = re.compile(r'\b(P[0-3])\b'); WORDS = [('critical', 'P0'), ('blocker', 'P0'), ('high', 'P1'), ('required', 'P1'), ('major', 'P1'), ('medium', 'P2'), ('minor', 'P2'), ('low', 'P3'), ('nit', 'P3')]
+LOC_LINK = re.compile(r'\]\(<([^>]+?)(?::(\d+))?(?:#L(\d+))?>\)|\]\(([^)\s]+?)(?::(\d+))?(?:#L(\d+))?\)')
+LOC_TEXT = re.compile(r'([\w.@()\-]+(?:/[\w.@()\[\]\-]+)*\.[A-Za-z0-9]{1,6}):(\d+)')
+
+def sq(t, n=10**6): return re.sub(r'\s+', ' ', t)[:n]
+def now_iso(): return dt.datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
+def git(root, *a):
+    try: return subprocess.run(['git', '-C', root, *a], capture_output=True, text=True, timeout=20).stdout.strip()
+    except Exception: return ''
+def rel(path, root):
+    p = re.sub(r'^.*?/\.claude/worktrees/[^/]+/', '', path)
+    if root and p.startswith(root.rstrip('/') + '/'): p = p[len(root.rstrip('/')) + 1:]
+    p = re.sub(r'^/private/tmp/claude-\d+/[^/]+/[^/]+/', '', p)
+    return p.lstrip('/') if not p.startswith('/Users/') else re.sub(r'^/Users/[^/]+/devs/[^/]+/', '', p)
+
+def parse(text, root=''):
+    """Split a review into findings: level, file, line, text, fixed (FIXED in a re-review)."""
+    lines = text.splitlines(); i = 0
+    while i < len(lines) and 'VERDICT' not in lines[i].upper(): i += 1
+    body = lines[i + 1:] if i < len(lines) else lines
+    items, cur = [], None
+    for ln in body:
+        if START.match(ln) and len(ln.strip()) > 12:
+            if cur: items.append(cur)
+            cur = [ln.strip()]
+        elif cur is not None and ln.strip():
+            cur.append(ln.strip())
+        elif cur is not None and not ln.strip() and len(cur) > 6:
+            items.append(cur); cur = None
+    if cur: items.append(cur)
+    out = []
+    for it in items:
+        t = re.sub(r'^\s*(?:[-*•]|\d+[.)])\s+', '', ' '.join(it)); head = t[:120]
+        m = LEVEL.search(head); lvl = m.group(1).upper() if m else next((v for w, v in WORDS if re.search(r'\b' + w + r'\b', head, re.I)), '?')
+        f = ln_ = ''
+        lm = LOC_LINK.search(t); tm = LOC_TEXT.search(t)
+        if lm:
+            g = lm.groups()
+            f, ln_ = (g[0], g[1] or g[2] or '') if g[0] else (g[3], g[4] or g[5] or '')
+        elif tm: f, ln_ = tm.group(1), tm.group(2)
+        if f:
+            f = rel(f, root)
+        up = t.upper()
+        fixed = bool(re.search(r'(?<!NOT )\bFIXED\b', up)) and 'NOT FIXED' not in up
+        out.append(dict(level=lvl, file=f, line=ln_, text=t[:1500], fixed=fixed, carried='NOT FIXED' in up))
+    return out
+
+def fid(repo, branch, f): return hashlib.sha1((repo + '|' + branch + '|' + f['file'] + '|' + re.sub('[^a-z]', '', f['text'].lower())[:160]).encode()).hexdigest()[:12]
+
+def load():
+    rows, status = [], {}
+    if not os.path.exists(LOG): return rows, status
+    for l in open(LOG, errors='replace'):
+        try: d = json.loads(l)
+        except Exception: continue
+        if d.get('kind') == 'status': status[d['id']] = d
+        else: rows.append(d)
+    return rows, status
+
+def open_sets(rows, status, repo=None, branch=None, include_closed=False):
+    """Per (repo, branch): the findings of its latest review (a re-review carries earlier ones as FIXED/NOT FIXED), minus later status marks."""
+    last = {}
+    for r in rows:
+        if r.get('caller') == 'hook' or r.get('mode') == 'spec': continue
+        k = (r['repo'], r['branch'])
+        if (repo and r['repo'] != repo) or (branch and r['branch'] != branch): continue
+        if k not in last or r['review_at'] > last[k]: last[k] = r['review_at']
+    res = collections.defaultdict(list); seen = set()
+    for r in rows:
+        k = (r.get('repo'), r.get('branch'))
+        if k in last and r['review_at'] == last[k] and r.get('caller') != 'hook' and r.get('mode') != 'spec':
+            if (k, r['id']) in seen: continue
+            seen.add((k, r['id'])); s = status.get(r['id'], {}).get('status')
+            closed = r.get('fixed') or s in ('fixed', 'gone')
+            if include_closed or not closed: res[k].append(dict(r, status=s or ('fixed' if r.get('fixed') else 'open')))
+    return res
+
+def write_md(root, branch, items, meta):
+    d = os.path.join(root, 'docs', 'tasks', 'review-notes'); os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, re.sub(r'[^A-Za-z0-9._-]+', '-', branch) + '.md')
+    if not items:
+        if os.path.exists(p): open(p, 'w').write(f"# Review notes: {branch}\n\nNo open findings after the {meta} review. Move this file to docs/archive/ or delete it.\n")
+        return p
+    order = {'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3, '?': 4}
+    out = [f"# Review notes: {branch}", '',
+           f"Open findings from the last Codex review ({meta}). Written by codex-review after each review; `review-notes --write` rebuilds it",
+           "from ~/.local/state/ai-loop/findings.jsonl and `review-notes --recheck` checks them against the code. Tick a box when handled.", '']
+    for f in sorted(items, key=lambda x: order.get(x['level'], 4)):
+        loc = f"{f['file']}:{f['line']}" if f['file'] and f['line'] else f['file'] or '-'
+        t = re.sub(r'\s+', ' ', re.sub(r'\]\([^)]*\)', ']', f['text']))[:400]
+        out.append(f"- [ ] [{f['level']}] `{loc}` — {t} <!-- {f['id']} -->")
+    open(p, 'w').write('\n'.join(out) + '\n'); return p
+
+def record(a):
+    text = open(a['review'], errors='replace').read()
+    root = a.get('root', ''); branch = a.get('branch') or '?'; repo = a.get('repo') or os.path.basename(root)
+    at = a.get('at') or now_iso(); fs = parse(text, root)
+    verdict = (re.search(r'VERDICT[*_` ]*:[*_` ]*(SHIP|NEEDS WORK|BLOCK|READY|REVISE)', text, re.I) or [None, '-'])[1].upper()
+    os.makedirs(STATE, exist_ok=True)
+    with open(LOG, 'a') as fh:
+        for f in fs:
+            f.update(id=fid(repo, branch, f), repo=repo, branch=branch, base=a.get('base', ''), caller=a.get('caller', 'manual'), mode=a.get('mode', 'diff'),
+                     reviewer=a.get('reviewer', ''), model=a.get('model', ''), src=a.get('src', ''), round=int(a.get('round') or 1), verdict=verdict, review_at=at, tree=a.get('tree', ''))
+            fh.write(json.dumps(f, ensure_ascii=False) + '\n')
+    if a.get('notes') == '1' and root and a.get('caller') != 'hook' and a.get('mode') in ('diff', 'recheck'):
+        items = [dict(f, id=f['id']) for f in fs if not f['fixed']]
+        write_md(root, branch, items, f"{at[:16].replace('T', ' ')}, {a.get('caller')}, {verdict}")
+    print(f"review-notes: {len(fs)} findings recorded ({verdict})", file=sys.stderr)
+
+def repo_ctx(path):
+    root = git(path or '.', 'rev-parse', '--show-toplevel')
+    common = git(path or '.', 'rev-parse', '--path-format=absolute', '--git-common-dir')
+    main = os.path.dirname(common) if common.endswith('/.git') else root
+    return root, os.path.basename(main or root), git(path or '.', 'symbolic-ref', '--short', 'HEAD') or git(path or '.', 'rev-parse', '--short', 'HEAD')
+
+def recheck(root, items, limit):
+    lim = os.path.join(STATE, 'codex.limited')
+    try:
+        if os.path.exists(lim) and int(open(lim).readline().strip() or 0) > time.time(): print('review-notes: Codex is at its limit (ai-limits) — try later', file=sys.stderr); return {}
+    except ValueError: pass
+    items = items[:limit]
+    lst = '\n'.join(f"{i + 1}. [{f['level']}] {f['file']}:{f['line']} — {sq(f['text'], 500)}" for i, f in enumerate(items))
+    prompt = ("These are findings from earlier code reviews of this repository. Check each one against the code as it is now in this working tree "
+              "(read files and git history; change nothing). Answer with exactly one line per finding, in order: `<n>: FIXED`, `<n>: OPEN` or `<n>: GONE`, "
+              "then ' — ' and a reason of at most 15 words. GONE means the file or the code it is about no longer exists. Findings:\n" + lst)
+    out = os.path.join(STATE, f'recheck-{os.getpid()}.txt')
+    cmd = ['codex', 'exec', '-m', os.environ.get('REVIEW_NOTES_MODEL', 'gpt-6-luna'), '-c', f'model_reasoning_effort="{os.environ.get("REVIEW_NOTES_EFFORT", "high")}"',
+           '-c', 'approval_policy="never"', '--sandbox', 'read-only', '-o', out, prompt]
+    try: subprocess.run(cmd, cwd=root, capture_output=True, text=True, timeout=int(os.environ.get('REVIEW_NOTES_TIMEOUT', '900')))
+    except Exception as e: print(f'review-notes: codex failed: {e}', file=sys.stderr); return {}
+    ans = open(out, errors='replace').read() if os.path.exists(out) else ''
+    try: os.remove(out)
+    except OSError: pass
+    res = {}
+    for m in re.finditer(r'(?m)^\s*(\d+)\s*[:.)]\s*\**(FIXED|OPEN|GONE)\**\s*(?:[—-]\s*(.*))?$', ans, re.I):
+        n = int(m.group(1)) - 1
+        if 0 <= n < len(items): res[items[n]['id']] = (m.group(2).lower(), (m.group(3) or '').strip())
+    with open(LOG, 'a') as fh:
+        for k, (s, why) in res.items(): fh.write(json.dumps(dict(kind='status', id=k, status=s, why=why, by='recheck', at=now_iso())) + '\n')
+    return res
+
+def backfill(since):
+    base = os.environ.get('CODEX_SESSIONS') or os.path.expanduser('~/.codex/sessions'); n = 0
+    done = {r.get('src') for r in load()[0] if r.get('src')}   # rollouts already read: a second backfill adds nothing twice
+    for dp, _, fs in os.walk(base):
+        for f in sorted(fs):
+            if not f.endswith('.jsonl'): continue
+            m = re.search(r'rollout-(\d{4}-\d\d-\d\d)T(\d\d)-(\d\d)-(\d\d)', f)
+            if not m or m.group(1) < since: continue
+            cwd = text = prompt = model = ''
+            for l in open(os.path.join(dp, f), errors='replace'):
+                try: d = json.loads(l)
+                except Exception: continue
+                p = d.get('payload') or {}
+                if d.get('type') == 'session_meta': cwd = p.get('cwd', '')
+                elif d.get('type') == 'turn_context' and not model: model = p.get('model', '')
+                elif d.get('type') == 'event_msg' and p.get('type') == 'task_complete': text = p.get('last_agent_message') or text
+                elif d.get('type') == 'response_item' and p.get('type') == 'message' and p.get('role') == 'user':
+                    u = ' '.join(c.get('text', '') for c in p.get('content', []) if isinstance(c, dict))
+                    if re.search(r'Review the (file|changes)|^Re-review\.', u): prompt = u[:4000]
+            if 'VERDICT' not in (text or '').upper(): continue
+            mode = 'spec' if 'Review the file' in prompt else 'recheck' if 'Re-review.' in prompt else 'diff' if 'Review the changes' in prompt else ''
+            if not mode: continue
+            if f in done: continue
+            wt = re.search(r'/\.claude/worktrees/([^/]+)', cwd); tmp = re.search(r'/private/tmp/claude-\d+/-Users-[^-]+-devs-([^/]+)', cwd)
+            root = cwd.split('/.claude/worktrees/')[0] if wt else ''
+            repo = os.path.basename(root) if root else (tmp.group(1) if tmp else os.path.basename(cwd))
+            pm = os.environ.get('REVIEW_NOTES_PATHMAP', '')   # from=to, when the sessions were recorded on another machine
+            lc = cwd.replace(pm.split('=')[0], pm.split('=')[1], 1) if '=' in pm else cwd
+            branch = (git(lc, 'symbolic-ref', '--short', 'HEAD') if os.path.isdir(lc) else '') or (wt.group(1) if wt else 'main checkout')
+            if os.path.isdir(lc) and not wt:   # a subfolder of a repo (hub/home): name the repo, not the folder
+                top, rp, _ = repo_ctx(lc); repo = rp or repo
+                if top and '=' in pm: root = top.replace(pm.split('=')[1], pm.split('=')[0], 1)
+            caller = 'hook' if 'diff HEAD' in prompt or 'against HEAD' in prompt else 'backfill'
+            tf = os.path.join(STATE, 'backfill.tmp'); open(tf, 'w').write(text)
+            record(dict(review=tf, root=root or cwd, repo=repo, branch=branch, caller=caller, mode=mode, model=model, reviewer='codex (backfill)',
+                        at=f"{m.group(1)}T{m.group(2)}:{m.group(3)}:{m.group(4)}", notes='0', src=f)); n += 1
+    print(f'review-notes: backfilled {n} reviews since {since}', file=sys.stderr)
+
+def main(av):
+    if not av or av[0] in ('-h', '--help') and len(av) == 1 and False: pass
+    if av and av[0] in ('-h', '--help'): print(__doc__); return 0
+    if av and av[0] == 'record':
+        a = {}; it = iter(av[1:])
+        for k in it: a[k.lstrip('-')] = next(it, '')
+        record(a); return 0
+    if av and av[0] == 'backfill':
+        backfill(av[av.index('--since') + 1] if '--since' in av else '2026-10-10'); return 0
+    rows, status = load()
+    if '--stats' in av:
+        since = av[av.index('--since') + 1] if '--since' in av else '0'
+        rs = [r for r in rows if r['review_at'] >= since]
+        print(f"{len(rs)} findings in {len({(r['repo'], r['review_at']) for r in rs})} reviews since {since}")
+        print('by level:', dict(collections.Counter(r['level'] for r in rs).most_common()))
+        print('by repo:', dict(collections.Counter(r['repo'] for r in rs).most_common(12)))
+        fold = collections.Counter((r['repo'], os.path.dirname(r['file']) or '.') for r in rs if r['file'])
+        print('folders with the most findings (repo · folder · count) — candidates for an AGENTS.md gotcha:')
+        for (rp, fo), c in fold.most_common(15): print(f'  {rp} · {fo} · {c}')
+        return 0
+    path = next((x for x in av if not x.startswith('-') and not re.match(r'^\d+$', x) and x not in ('--branch',)), '.')
+    if '--branch' in av: path = '.' if path == av[av.index('--branch') + 1] else path
+    root, repo, br = repo_ctx(path)
+    if not root: print('review-notes: not in a git repo', file=sys.stderr); return 66
+    branch = av[av.index('--branch') + 1] if '--branch' in av else (None if ('--write' in av or '--all-branches' in av) else None)
+    sets = open_sets(rows, status, repo=repo, branch=branch, include_closed='--all' in av)
+    if '--recheck' in av:
+        lim = int(av[av.index('--limit') + 1]) if '--limit' in av else 40
+        items = [f for k, v in sets.items() for f in v if '--all-branches' in av or k[1] == (branch or br)]
+        if not items: print(f'review-notes: no open findings for {repo} {"" if "--all-branches" in av else branch or br}'); return 0
+        res = recheck(root, items, lim); c = collections.Counter(s for s, _ in res.values())
+        print(f"review-notes: rechecked {len(res)} of {len(items)} — fixed {c['fixed']}, open {c['open']}, gone {c['gone']}")
+        for f in items:
+            if f['id'] in res: print(f"  {res[f['id']][0]:5} [{f['level']}] {f['file']}:{f['line']} — {res[f['id']][1]}")
+        rows, status = load(); sets = open_sets(rows, status, repo=repo)
+    if '--write' in av:
+        for (rp, b), items in sets.items():
+            if b in ('?', 'main checkout'): continue
+            print('wrote', write_md(root, b, items, 'rebuilt by review-notes'))
+        return 0
+    if not sets: print(f'review-notes: no open findings for {repo}'); return 0
+    for (rp, b), items in sorted(sets.items()):
+        print(f"\n{rp} · {b} · {len(items)} open (last review {items[0]['review_at'][:16]}, {items[0]['caller']}, {items[0]['verdict']})")
+        for f in items: print(f"  [{f['level']}] {f['status']:5} {f['file']}:{f['line']} — {sq(f['text'], 140)}")
+    return 0
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

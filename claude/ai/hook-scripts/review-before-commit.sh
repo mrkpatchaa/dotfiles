@@ -41,6 +41,14 @@ if [ "${AI_HOOK_REVIEW_LOOP:-0}" != 1 ]; then
   case "$(git rev-parse --show-toplevel 2>/dev/null)" in */.claude/worktrees/agent-*)
     hlog "skipped: agent worktree"; echo "ai-loop: subagent worktree — no per-commit review (the loop's Stage 4 or /ai:ship reviews the branch)"; exit 0 ;; esac
 fi
+# A full review just saw this exact working tree (0.15.0): /ai:loop, /ai:ship or a manual codex-review, in the last AI_HOOK_STAMP_AGE s
+# (1800), verdict not BLOCK. fedapay-a/b, 15 Oct 2026: the hook and full reviews alternated on the same content, 23 reviews. AI_HOOK_STAMP_SKIP=0 turns it off.
+st="$(stamp_file)"
+if [ "${AI_HOOK_STAMP_SKIP:-1}" != 0 ] && [ -f "$st" ]; then
+  IFS="$TAB" read -r s_tree s_verdict s_at s_base s_caller s_round < "$st"
+  if [ -n "$s_tree" ] && [ "$s_verdict" != BLOCK ] && [ $(( $(now) - ${s_at:-0} )) -le "${AI_HOOK_STAMP_AGE:-1800}" ] && [ "$(work_tree)" = "$s_tree" ]; then
+    hlog "skipped: $s_caller review saw this tree"; echo "ai-loop: a $s_caller review saw this exact working tree $(fmt_dur $(( $(now) - s_at ))) ago (VERDICT: $s_verdict) — no second review"; exit 0; fi
+fi
 changed="$( { git diff HEAD --name-only 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u)"
 if [ -z "$changed" ]; then hlog "skipped: nothing changed"; echo "ai-loop: nothing changed against HEAD — no review"; exit 0; fi
 if [ "${AI_HOOK_REVIEW_DOCS:-0}" != 1 ] && [ -z "$(printf '%s\n' "$changed" | grep -Ev '^docs/|\.(md|mdx|txt)$')" ]; then

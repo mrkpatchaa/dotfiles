@@ -9,9 +9,11 @@ The goal is confidence per line of test, not a deletion count.
 
 Read the root and nested `AGENTS.md` first. Keep this read-only until stage 3.
 
-Stage 1 — Inventory (cheap lane). Delegate to the `grunt` agent: list test files per package with line counts, the date each was added (`git log --diff-filter=A --format=%as -- <file>`), how many were added in the last 60 days, and the e2e suites that exist. It returns a table, not file contents.
+Modes. When the arguments contain `unattended` (`ai-night --audit` adds it; I am away): run Stages 1 and 2 for the one folder named, write the result to `docs/tasks/test-audit-<folder with / as ->.md` (the scan line, the candidate table, the kept list, and a last line `Status: proposed`), commit nothing, ask nothing, and stop. When the argument is such a file: read it, show me its table, and continue at the gate before Stage 3; afterwards set its status to `deleted` or `declined` and move it to `docs/archive/`.
 
-Stage 2 — Candidates (you). Pick one package or folder at a time, starting where recent agent-written tests cluster. For each candidate test, read the whole test, the production code it covers and that code's callers. A test is a candidate when it matches one of these:
+Stage 1 — Inventory (no model). Run `test-scan <path>` (on PATH with the plugin). It writes `docs/tasks/test-scan-<date>.csv` and prints totals per folder and the files to read first, with the signs it counted (mocks of the repo's own modules, snapshots, source reads, few or weak assertions, repeated titles). For runtimes, add `--durations <report.json>` when the folder's runner can write a JSON report and the run takes a few minutes at most (vitest `--reporter=json --outputFile=<file>`, jest `--json --outputFile=<file>`). The signs say where to read first. They decide nothing.
+
+Stage 2 — Candidates. Pick one package or folder at a time, starting with the scan's top files. Send the folder to a `checker` agent with this skill's candidate and keep rules below and the scan rows for that folder as its brief; it returns the table, so the files it reads stay out of this session. Unattended, do it yourself in this session: it is fresh. For each candidate test, read the whole test, the production code it covers and that code's callers. A test is a candidate when it matches one of these:
 - it asserts implementation, not behaviour: it would fail under a refactor that keeps behaviour;
 - the expected value is produced by the helper under test, or a mock implements the behaviour being asserted;
 - self-comparisons, assertion-free "coverage" tests, snapshot or string greps of the source;
@@ -25,7 +27,7 @@ Record for every candidate: file and test name; what failure it can actually det
 
 Show me the candidates as a table (file · test · why low value · what still covers it · lines removed), with the tests you looked at and kept listed separately. Do not continue without my yes.
 
-Stage 3 — One batch. On my yes, delete that batch only (one package or folder), plus any test-only exports and dead code it frees. Do not add replacement tests. Do not edit files while a test runner is running. Run that package's test command and type check, then `git diff --numstat`, and report test lines and production lines removed separately. A kept test that now fails is a possible product bug: reproduce it and tell me; never delete it to go green. The pre-commit review runs on the commit as usual.
+Stage 3 — One batch. On my yes, delete that batch only (one package or folder), plus any test-only exports and dead code it frees. Do not add replacement tests. Do not edit files while a test runner is running. Time that package's test command before the deletion and after it. Run the type check, then `git diff --numstat`, and report test lines and production lines removed separately, and the runtime before and after. A kept test that now fails is a possible product bug: reproduce it and tell me; never delete it to go green. The pre-commit review runs on the commit as usual.
 
 Then offer the next folder; one batch per commit.
 

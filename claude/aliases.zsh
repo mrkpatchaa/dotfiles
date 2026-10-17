@@ -45,17 +45,18 @@ alias cc-sonnet-solo="$_cc_caps CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 CLAUDE_CODE_S
 # Codex review tiers (read by codex-review, so also by the commit hook, /ai:loop and /ai:ship). Plus quota is the scarce budget.
 # Ids from OpenAI's model list (22 Sep 2026: GPT-6 Sol and Luna on Plus, half the price of the 5.6 pair). Needs a Codex CLI that lists them
 # under /model — update Codex first. Astra is left out: OpenAI puts Sol at Astra-level reliability; set the risky tier to gpt-6-astra if you disagree.
-export CODEX_REVIEW_MODEL="gpt-6.1-sol"        # spec reviews and /ai:loop, /ai:ship QA (6.1 since 1 Oct: better than 6 at the same price, cached input halved)
-export CODEX_REVIEW_EFFORT="medium"            # OpenAI's suggested start for Sol
-export CODEX_REVIEW_MODEL_RISKY="gpt-6.1-sol"  # a focus (auth, payments, schema…) keeps the model and raises the effort
-export CODEX_REVIEW_EFFORT_RISKY="xhigh"
+# 0.16.0 (17 Oct 2026, Codex rollouts 10–17 Oct): per review, Sol xhigh took ~1.9 % of the week, Sol medium ~1.1 %, Astra low ~1.2 %, Luna max
+# ~0.15 %. Luna max reviews were not SHIP about as often as Sol (75 % vs 77 %), with fewer BLOCKs (4 % vs 11 %). Sol stays for focus reviews only.
+export CODEX_REVIEW_MODEL="gpt-6-luna"         # ordinary diff reviews, rechecks (/ai:loop Stage 5, /ai:ship); was gpt-6.1-sol medium
+export CODEX_REVIEW_EFFORT="max"
+export CODEX_REVIEW_MODEL_RISKY="gpt-6.1-sol"  # a full diff review with a focus (auth, money, data, migrations); rechecks stay on Luna
+export CODEX_REVIEW_EFFORT_RISKY="medium"      # was xhigh: 113 runs used ~60 % of the 10–17 Oct week
 export CODEX_REVIEW_MODEL_COMMIT="gpt-6-luna"  # the pre-commit hook: small diffs, many calls. Unset both to review commits on Sol.
 export CODEX_REVIEW_EFFORT_COMMIT="high"       # max is Luna's best mode but slower; the hook has 540 s
 export CODEX_REVIEW_EFFORT_CHEAP="max"         # the weekly-budget downgrade tier (Luna): loop reviews have 35 min, so use Luna's best mode (0.5.3; was high)
-# Trial (batch 14, live since the 7 Oct 2026 weekly reset): spec reviews on Astra at low effort ("Astra Light"). Compare the weekly %
-# per spec review in `ai-limits log` with Sol's (~1.5 % at medium) and the findings with Sol's. Comment both out again to end the trial.
-export CODEX_REVIEW_MODEL_SPEC="gpt-6-astra"
-export CODEX_REVIEW_EFFORT_SPEC="low"
+# Spec reviews: Luna max since 0.16.0 (the Astra-low trial of 7–17 Oct cost ~1.2 % of the week per review, Luna max ~0.24 %).
+export CODEX_REVIEW_MODEL_SPEC="gpt-6-luna"
+export CODEX_REVIEW_EFFORT_SPEC="max"
 # Weekly budget (plugin 0.5.1, after the 21–24 Sep week: Astra/Sol reviews spent a Plus week in 2.5 days, Luna reviews did not move the counter):
 # once Codex's last usage snapshot shows the 7-day window at 80 % or more, codex-review runs every review on gpt-6-luna high and says so in its
 # REVIEWER line. Tune with CODEX_WEEKLY_DOWNGRADE_AT (0 = off), CODEX_REVIEW_MODEL_CHEAP, CODEX_REVIEW_EFFORT_CHEAP. The commit hook keeps the

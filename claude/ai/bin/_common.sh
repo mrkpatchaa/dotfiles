@@ -71,6 +71,16 @@ oc_standalone() { [ "${OPENCODE_STANDALONE:-1}" = 0 ] && return 0
 
 # norm_verdict [file] — the verdict word of a review in upper case (SHIP, NEEDS WORK, BLOCK, READY, REVISE), or nothing. Tolerates case and
 # markdown ("**Verdict:** ship"): on 4 Oct 2026 the hook's headless Claude reviews never wrote the exact `VERDICT:` line and all 56 were thrown away.
+# Review stamps (0.15.0): what the last full or re-review of a branch saw. One file per branch under $STATE_DIR/stamps:
+# tree<TAB>verdict<TAB>epoch<TAB>base<TAB>caller<TAB>round, plus <file>.review with the review text. work_tree is the whole working tree,
+# untracked files included (.gitignore respected), written as a git tree object through a temporary index; the real index is never touched.
+TAB="$(printf '\t')"
+stamp_file() { local c b; c="$(cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P)"
+  b="$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse HEAD 2>/dev/null)"; mkdir -p "$STATE_DIR/stamps"
+  printf '%s/stamps/%s' "$STATE_DIR" "$(printf '%s|%s' "$c" "$b" | cksum | cut -d' ' -f1)"; }
+work_tree() { local idx t; idx="$(mktemp)"; rm -f "$idx"; cp "$(git rev-parse --git-path index 2>/dev/null)" "$idx" 2>/dev/null
+  # docs/tasks/review-notes/ is written by codex-review after the snapshot (0.18.0): left out, or no tree would ever match the stamp again
+  t="$(GIT_INDEX_FILE="$idx" git add -A -- :/ >/dev/null 2>&1 && { GIT_INDEX_FILE="$idx" git rm -r -q --cached --ignore-unmatch -- ':/docs/tasks/review-notes' >/dev/null 2>&1; GIT_INDEX_FILE="$idx" git write-tree 2>/dev/null; })"; rm -f "$idx"; printf '%s' "$t"; }
 norm_verdict() { grep -iEo 'verdict[*_` ]*:[*_` ]*(ship|needs work|block|ready|revise)' "${1:--}" 2>/dev/null | head -1 | sed -E 's/.*:[*_` ]*//' | tr '[:lower:]' '[:upper:]'; }
 
 # The cheap lane (OpenCode) can be switched off: AI_CHEAP_LANE=off for a shell, `git config ai-loop.cheaplane off` for a clone,

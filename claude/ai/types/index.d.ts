@@ -3,6 +3,6 @@ export type LastRow = { tool: string; lane: string; result: string; detail: stri
 
 declare module 'claude-code' {
   interface PluginState {
-    ai: { lanes: LaneRow[]; last: LastRow | null }
+    ai: { lanes: LaneRow[]; last: LastRow | null; ctx: number }
   }
 }

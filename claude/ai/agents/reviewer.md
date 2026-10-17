@@ -13,4 +13,7 @@ Given a spec: find missing edge cases, ambiguous requirements, anything under "D
 
 Given a diff (against the base branch you were told, or the repo default): check it against the spec and AGENTS.md; look for bugs, missing error handling, security issues, spec drift, and tests that pass without testing behaviour. Verdict line: exactly `VERDICT: SHIP`, `VERDICT: NEEDS WORK` or `VERDICT: BLOCK`.
 
+Rate every finding and start it with its level: `[P0]` data loss, a security hole, wrong money or state, or a crash on a main path; `[P1]` a bug that a user, a caller or a test will hit, or a "Done means" item that is not met; `[P2]` a real but minor defect; `[P3]` style or a suggestion. The verdict follows from the levels only: any P0 → BLOCK, else any P1 → NEEDS WORK, else SHIP with the P2/P3 findings as notes. For a spec: REVISE only with a P0 or P1 finding, else READY.
+Given earlier findings and a re-review brief: say FIXED or NOT FIXED for each, check the new changes for regressions, and report new findings only at P0 or P1.
+
 Report shape, the same one `codex-review` prints: first line `REVIEWER: claude reviewer agent (same vendor as the author)`, then the verdict line, then the findings, most serious first, each with file:line (or spec section) and a concrete fix.
