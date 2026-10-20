@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+"""mobile-setup — give Argent (device and simulator tools) to the mobile repos only (0.19.0).
+Usage: mobile-setup [--dry-run]
+Finds the folders under AI_DEVS_ROOT (default ~/devs, three levels deep) that are a mobile app:
+  - a git repo with an AGENTS.md (set up for the ai plugin) and "expo" or "react-native" in a package.json
+    at its root, in mobile/, apps/*/ or packages/*/;
+  - or a folder with an `.ai-mobile` marker file (a parent folder where sessions start, a data repo for an app).
+A `.ai-mobile-skip` marker leaves a folder out. Worktrees are skipped: they get the files from a commit.
+In each one it makes sure that:
+  - .claude/rules/argent.md is a copy of the Argent rule, so main sessions and subagents read it there only. A copy, not
+    a CLAUDE.md import or a symlink: those point outside the repo, so Claude Code asks for approval once per project,
+    and a headless run (ai-night) cannot answer. A copy that differs from the rule is replaced;
+  - .mcp.json lists the argent server (other servers are kept).
+The rule lives at AI_MOBILE_RULE (default ~/.config/ai/rules/argent.md, outside every repo). If it is missing and
+~/.claude/rules/argent.md exists (where Argent's installer puts it, loaded in every session), it is moved there,
+replacing an older copy: run this again after an Argent update.
+Running it twice changes nothing. Run it again after an Argent update. It prints what it changed, and the repos with
+changes to commit (worktrees get the files from a commit).
+"""
+import json, os, re, shutil, subprocess, sys
+
+HOME = os.path.expanduser('~')
+ROOT = os.path.expanduser(os.environ.get('AI_DEVS_ROOT', '~/devs'))
+RULE = os.path.expanduser(os.environ.get('AI_MOBILE_RULE', '~/.config/ai/rules/argent.md'))
+USER_RULE = os.path.join(HOME, '.claude', 'rules', 'argent.md')
+SERVER = {'type': 'stdio', 'command': 'argent', 'args': ['mcp']}
+SKIP_DIRS = {'node_modules', '.git', '.claude', '_archive', 'dist', 'build', 'ios', 'android'}
+DRY = '--dry-run' in sys.argv
+RN_RE = re.compile(r'"(expo|react-native)"\s*:')
+
+def tilde(p):
+    return '~' + p[len(HOME):] if p.startswith(HOME + os.sep) else p
+
+
+def say(msg):
+    print(('(dry run) ' if DRY else '') + msg)
+
+def is_worktree(d):
+    g = os.path.join(d, '.git')
+    if not os.path.isfile(g):
+        return False
+    with open(g, encoding='utf-8', errors='replace') as f:
+        return '/worktrees/' in f.read()
+
+def is_rn(d):
+    places = [d, os.path.join(d, 'mobile')]
+    for sub in ('apps', 'packages'):
+        p = os.path.join(d, sub)
+        if os.path.isdir(p):
+            places += [os.path.join(p, x) for x in sorted(os.listdir(p))]
+    for p in places:
+        pj = os.path.join(p, 'package.json')
+        if os.path.isfile(pj):
+            with open(pj, encoding='utf-8', errors='replace') as f:
+                if RN_RE.search(f.read()):
+                    return True
+    return False
+
+def find():
+    targets, unmanaged = [], []
+    for cur, dirs, files in os.walk(ROOT):
+        depth = cur[len(ROOT):].count(os.sep)
+        dirs[:] = sorted(x for x in dirs if x not in SKIP_DIRS and not x.startswith('.')) if depth < 3 else []
+        if '.ai-mobile-skip' in files:
+            dirs[:] = []
+            continue
+        if '.ai-mobile' in files:
+            targets.append(cur)
+        elif os.path.exists(os.path.join(cur, '.git')) and not is_worktree(cur) and is_rn(cur):
+            (targets if 'AGENTS.md' in files else unmanaged).append(cur)
+    return targets, unmanaged
+
+def move_rule():
+    if os.path.isfile(USER_RULE):   # first run, or Argent wrote it again on an update: it is the newest copy
+        say(f'move {tilde(USER_RULE)} → {tilde(RULE)}' + (' (replaces the older copy)' if os.path.isfile(RULE) else ''))
+        if not DRY:
+            os.makedirs(os.path.dirname(RULE), exist_ok=True)
+            shutil.move(USER_RULE, RULE)
+        return True
+    if os.path.isfile(RULE):
+        return True
+    say(f'no Argent rule found ({tilde(RULE)} or {tilde(USER_RULE)}): only .mcp.json is set.')
+    return False
+
+def ensure_rule(d, have_rule):
+    if not have_rule:
+        return None
+    p = os.path.join(d, '.claude', 'rules', 'argent.md')
+    src = open(RULE, 'rb').read() if os.path.isfile(RULE) else (open(USER_RULE, 'rb').read() if DRY else b'')
+    if os.path.isfile(p) and open(p, 'rb').read() == src:
+        return None
+    if not DRY:
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, 'wb') as f:
+            f.write(src)
+    return '.claude/rules/argent.md'
+
+def ensure_mcp(d):
+    p = os.path.join(d, '.mcp.json')
+    data = {}
+    if os.path.isfile(p):
+        try:
+            with open(p, encoding='utf-8') as f:
+                data = json.load(f)
+        except ValueError:
+            say(f'{tilde(p)}: not valid JSON, left alone')
+            return None
+    servers = data.setdefault('mcpServers', {})
+    if 'argent' in servers:
+        return None
+    servers['argent'] = SERVER
+    if not DRY:
+        with open(p, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2)
+            f.write('\n')
+    return '.mcp.json'
+
+def to_commit(d, names):
+    if not os.path.exists(os.path.join(d, '.git')):
+        return []
+    out = subprocess.run(['git', '-C', d, 'status', '--porcelain', '--', *names], capture_output=True, text=True).stdout
+    return [l[3:] for l in out.splitlines()]
+
+def main():
+    have_rule = move_rule()
+    targets, unmanaged = find()
+    commit = []
+    for d in targets:
+        changed = [x for x in (ensure_rule(d, have_rule), ensure_mcp(d)) if x]
+        say(f'{tilde(d)}: ' + (', '.join(changed) + ' updated' if changed else 'already set'))
+        pending = to_commit(d, ['.claude/rules/argent.md', '.mcp.json'])
+        if pending:
+            commit.append(f'{tilde(d)} ({", ".join(pending)})')
+    for d in unmanaged:
+        print(f'{tilde(d)}: an Expo/React Native repo with no AGENTS.md, left out (add `.ai-mobile` to include it, `.ai-mobile-skip` to silence this)')
+    if commit:
+        print('To commit, so worktrees get it:\n  ' + '\n  '.join(commit))
+
+if __name__ == '__main__':
+    main()

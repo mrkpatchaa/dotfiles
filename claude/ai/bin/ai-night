@@ -9,7 +9,7 @@
 # Options: --parallel 2   handoffs of different repos side by side (default 1, at most 2: Claude's limits, and 3 Codex slots)
 #          --max-specs N  specs per handoff in one run (default 20)     --dry-run   say what would run, start nothing
 # Env:     AI_NIGHT_MODEL=opus  AI_NIGHT_EFFORT=high  AI_NIGHT_PERMISSION=auto  AI_NIGHT_MAX_TURNS=400  AI_NIGHT_MAX_WAIT=21600 (longest limit wait, s)
-#          AI_NIGHT_AUTOCOMPACT=400000  compaction window for each run, in tokens (0.14.5: compact at 400k, not near 967k)
+#          AI_NIGHT_AUTOCOMPACT=250000  compaction window for each run, in tokens (0.18.1: 250k; 0.14.5: 400k, not near 967k)
 #          AI_NIGHT_BUDGET=40  --max-budget-usd for each spec run, in API-equivalent dollars (0.14.8; 0 = no cap). A run that hits it
 #          ends without a Status change, so the handoff stops as "no progress".
 # Why one session per spec: every call re-reads the whole conversation (4 Oct 2026: one session built 8 specs and its median call read 672k
@@ -24,7 +24,7 @@ set -u
 ND="$STATE_DIR/night"; mkdir -p "$ND"; LOG="$STATE_DIR/night.log"
 MODEL="${AI_NIGHT_MODEL:-opus}"; EFFORT="${AI_NIGHT_EFFORT:-high}"; PERM="${AI_NIGHT_PERMISSION:-auto}"; TURNS="${AI_NIGHT_MAX_TURNS:-400}"
 MAXWAIT="${AI_NIGHT_MAX_WAIT:-21600}"; PAR=1; MAXSPECS=20; DRY=0
-ACW="${AI_NIGHT_AUTOCOMPACT:-400000}"; BUDGET="${AI_NIGHT_BUDGET:-40}"
+ACW="${AI_NIGHT_AUTOCOMPACT:-250000}"; BUDGET="${AI_NIGHT_BUDGET:-40}"
 BUDGET_ARGS=(); [ "$BUDGET" != 0 ] && BUDGET_ARGS=(--max-budget-usd "$BUDGET")
 say() { echo "ai-night: $*" >&2; }
 nlog() { printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$1" "$2" "$3" "$4" "$(printf '%s' "$5" | tr '\t\n' '  ' | cut -c1-240)" >> "$LOG"; }

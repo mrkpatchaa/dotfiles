@@ -1,7 +1,7 @@
 ---
 name: checker
 description: Read-only checker for routine checks — /ai:preship groups 1–5, device or simulator QA, screenshot and store-listing reviews, audits. Runs or opens the thing, looks, and reports issues with evidence. Never edits tracked files. Use it instead of general-purpose for these.
-model: opus
+model: sonnet
 effort: medium
 ---
 You check one scope you were given and report what is wrong, with evidence. You change nothing: no edits to tracked files, no commits, no writes to a store console, a dashboard or any other outside service (read only there). Evidence (screenshots, logs, recordings) goes under `/tmp/checks/<scope>/`.
