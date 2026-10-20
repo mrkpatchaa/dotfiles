@@ -12,6 +12,9 @@
 #        CODEX_REVIEW_EFFORT_RISKY=<level>  effort when a focus is given; unset → CODEX_REVIEW_EFFORT (same model, more thinking)
 #        CODEX_REVIEW_MODEL_SPEC / CODEX_REVIEW_EFFORT_SPEC   tier for `spec` reviews only (unset → CODEX_REVIEW_MODEL / _EFFORT)
 #        The commit hook swaps in CODEX_REVIEW_MODEL_COMMIT / CODEX_REVIEW_EFFORT_COMMIT when set (small diffs, many calls).
+#        CODEX_BOOST_UNTIL=YYYY-MM-DD   before that day (UTC), full `diff` and `spec` reviews use the boost tiers (0.21.0):
+#        CODEX_REVIEW_MODEL_BOOST / _EFFORT_BOOST (no focus), _RISKY_BOOST (focus), _SPEC_BOOST. Unset ones keep the normal tier.
+#        Never for `recheck` or the commit hook. The weekly downgrade still applies. Unset or past → the normal tiers.
 #        REVIEW_FALLBACK_MODELS="opencode-go/glm-5.3 opencode-go/kimi-k3 opencode-go/deepseek-v4.1-flash"
 #        REVIEW_NOTES_FILES=0  findings go to $STATE_DIR/findings.jsonl only, not to docs/tasks/review-notes/ (0.18.0; see `review-notes -h`)
 #        REVIEW_FREE_TIMEOUT=600  lane timeout for a free model    REVIEW_FREE_TRIES=1  free models tried per call (0.15.0)
@@ -73,6 +76,19 @@ if [ "$MODE" = diff ] && [ -n "${FOCUS:-}" ]; then CM="${CODEX_REVIEW_MODEL_RISK
 # Spec reviews may run on their own tier (0.14.1): CODEX_REVIEW_MODEL_SPEC / CODEX_REVIEW_EFFORT_SPEC, e.g. gpt-6-astra at low ("Astra Light"
 # in the Codex app is Astra at low effort, per OpenAI support on 1 Oct 2026). Unset → the ordinary tier. The weekly downgrade still applies.
 if [ "$MODE" = spec ]; then CM="${CODEX_REVIEW_MODEL_SPEC:-$CM}"; CE="${CODEX_REVIEW_EFFORT_SPEC:-$CE}"; fi
+# Boost (0.21.0): OpenAI's 28-day pledge (from 4 Oct 2026: an improvement or a full reset each day) resets the Codex window every few days.
+# 13–20 Oct 2026: three windows ended early, at 82 %, 91 % and 35 %. The points left at a reset are lost, so until CODEX_BOOST_UNTIL the full
+# diff and spec reviews go back to the 0.15 tiers. Rechecks and the commit hook stay cheap. Past 80 % the weekly downgrade still takes over.
+BOOSTED=""
+if [ -n "${CODEX_BOOST_UNTIL:-}" ] && [ "${REVIEW_CALLER:-manual}" != hook ] && [[ "$(date -u +%Y-%m-%d)" < "$CODEX_BOOST_UNTIL" ]]; then
+  b_cm=""; b_ce=""
+  case "$MODE" in
+    diff) if [ -n "${FOCUS:-}" ]; then b_cm="${CODEX_REVIEW_MODEL_RISKY_BOOST:-}"; b_ce="${CODEX_REVIEW_EFFORT_RISKY_BOOST:-}"
+          else b_cm="${CODEX_REVIEW_MODEL_BOOST:-}"; b_ce="${CODEX_REVIEW_EFFORT_BOOST:-}"; fi ;;
+    spec) b_cm="${CODEX_REVIEW_MODEL_SPEC_BOOST:-}"; b_ce="${CODEX_REVIEW_EFFORT_SPEC_BOOST:-}" ;;
+  esac
+  if [ -n "$b_cm$b_ce" ]; then CM="${b_cm:-$CM}"; CE="${b_ce:-$CE}"; BOOSTED="boost until $CODEX_BOOST_UNTIL"; fi
+fi
 ASKED="$CM"   # what the caller wanted; the weekly-budget rule below may swap in the cheap tier
 codex_model() { grep -E '^[[:space:]]*model[[:space:]]*=' .codex/config.toml "$HOME/.codex/config.toml" 2>/dev/null | head -1 | sed -E 's/.*=[[:space:]]*"?([^"[:space:]]*)"?.*/\1/'; }
 
@@ -213,8 +229,8 @@ else
     fi
     if [ "${CODEX_REVIEW_JSON:-1}" = "0" ]; then run_lane "codex-review: codex" "$last" "$err" codex exec "$@" -c 'approval_policy="never"' --sandbox read-only "$PROMPT"; rc=$?; cp "$last" "$out"; fi
     if [ $rc -eq 0 ] && [ -s "$last" ]; then
-      m="${CM:-$(codex_model)}"; rl="REVIEWER: codex (${m:-default model}${downgraded:+, downgraded: 7-day window at ${WEEKLY}%})"; echo "$rl"; cat "$last"; save_stamp "$rl" "$last"; record_findings "$rl" "$last" "$m"
-      a="$(weekly_used)"; log_review codex "$m" "$(verdict_of "$last")" ok "weekly ${WEEKLY:-?}% → ${a:-?}%${downgraded:+; asked for ${ASKED:-the config.toml model}}; first: $(first_finding "$last")"; rm -f "$out" "$err" "$last"; exit 0
+      m="${CM:-$(codex_model)}"; bn=""; [ -z "$downgraded" ] && [ -n "$BOOSTED" ] && bn="$BOOSTED"; rl="REVIEWER: codex (${m:-default model}${downgraded:+, downgraded: 7-day window at ${WEEKLY}%}${bn:+, $bn})"; echo "$rl"; cat "$last"; save_stamp "$rl" "$last"; record_findings "$rl" "$last" "$m"
+      a="$(weekly_used)"; log_review codex "$m" "$(verdict_of "$last")" ok "weekly ${WEEKLY:-?}% → ${a:-?}%${downgraded:+; asked for ${ASKED:-the config.toml model}}${bn:+; $bn}; first: $(first_finding "$last")"; rm -f "$out" "$err" "$last"; exit 0
     fi
     [ $rc -eq 0 ] && rc=1   # exit 0 without a review is a failure
     why="$(after_failure codex "$rc" "$out" "$err")"; log_review codex "$CM" - "$why" "$(fail_note codex "$rc" "$why" "$out" "$err")"

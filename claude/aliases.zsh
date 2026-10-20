@@ -57,6 +57,17 @@ export CODEX_REVIEW_EFFORT_CHEAP="max"         # the weekly-budget downgrade tie
 # Spec reviews: Luna max since 0.16.0 (the Astra-low trial of 7–17 Oct cost ~1.2 % of the week per review, Luna max ~0.24 %).
 export CODEX_REVIEW_MODEL_SPEC="gpt-6-luna"
 export CODEX_REVIEW_EFFORT_SPEC="max"
+# Boost (0.21.0, 20 Oct 2026). OpenAI's 28-day pledge (from 4 Oct: an improvement or a full Codex reset each day, until about 1 Nov) resets the
+# window every few days. 13–20 Oct: three windows ended early, at 82 %, 91 % and 35 % (the last two under these Luna tiers, ~17 points a day).
+# The 0.15 tiers spent ~40 points a day, about one window per reset. So until CODEX_BOOST_UNTIL, full diff and spec reviews use them again.
+# Rechecks and the commit hook stay on Luna. The 80 % downgrade still applies. Past the date, or with CODEX_BOOST_UNTIL unset, the tiers above apply.
+export CODEX_BOOST_UNTIL="2026-11-01"
+export CODEX_REVIEW_MODEL_BOOST="gpt-6.1-sol"        # ordinary diff review, ~1.1–1.7 % of the week per run (Luna max ~0.15–0.3 %)
+export CODEX_REVIEW_EFFORT_BOOST="medium"
+export CODEX_REVIEW_MODEL_RISKY_BOOST="gpt-6.1-sol"  # diff review with a focus. high sits between medium and xhigh (~1.9 % per run)
+export CODEX_REVIEW_EFFORT_RISKY_BOOST="high"
+export CODEX_REVIEW_MODEL_SPEC_BOOST="gpt-6-astra"   # spec review, ~1.2 % per run ("Astra Light")
+export CODEX_REVIEW_EFFORT_SPEC_BOOST="low"
 # Weekly budget (plugin 0.5.1, after the 21–24 Sep week: Astra/Sol reviews spent a Plus week in 2.5 days, Luna reviews did not move the counter):
 # once Codex's last usage snapshot shows the 7-day window at 80 % or more, codex-review runs every review on gpt-6-luna high and says so in its
 # REVIEWER line. Tune with CODEX_WEEKLY_DOWNGRADE_AT (0 = off), CODEX_REVIEW_MODEL_CHEAP, CODEX_REVIEW_EFFORT_CHEAP. The commit hook keeps the

@@ -150,7 +150,7 @@ The loop stops for you up to three times: for the open questions before the spec
 
 ```mermaid
 flowchart TD
-  START(["codex-review spec|diff [base] [focus]"]) --> TIER["Pick the Codex tier<br/>focus → MODEL_RISKY / EFFORT_RISKY<br/>else CODEX_REVIEW_MODEL / EFFORT"]
+  START(["codex-review spec|diff [base] [focus]"]) --> TIER["Pick the Codex tier<br/>focus → MODEL_RISKY / EFFORT_RISKY<br/>spec → MODEL_SPEC / EFFORT_SPEC<br/>else CODEX_REVIEW_MODEL / EFFORT<br/>before CODEX_BOOST_UNTIL: the _BOOST tiers<br/>(diff and spec, not hook or recheck)"]
   TIER --> MARK{"Codex limit<br/>mark stored?"}
   MARK -->|"yes, older than 30 min"| PROBE["Probe: one-word Luna turn"]
   PROBE -->|answered| CLEAR["Remove the mark"] --> WEEK
