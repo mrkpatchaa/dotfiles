@@ -1,0 +1,51 @@
+schema_version: "1.1"
+name: stage1-stops
+description: >
+  /ai:loop with a one-line feature request. Stage 1 asks its questions first and
+  writes the spec only after my answers (skills/loop/SKILL.md), so the first turn
+  must ask and stop: no spec, no worktree, no implementer.
+tags: [loop, gate]
+expected_outcome: >
+  The last message asks numbered questions with a recommended answer under each,
+  and the run ends its turn there. No docs/specs/SPEC-*.md, no worktree, no build.
+context:
+  scaffold_script: fixture.sh
+execution:
+  max_turns: 40
+  timeout_seconds: 1200
+  allowed_tools: [Read, Glob, Grep, Agent, Bash, Write, Edit, Skill]
+  prompt: "/ai:loop add a dark mode toggle to the settings page"
+graders:
+  - name: asks-numbered-questions
+    type: llm
+    criteria: >
+      PASS when the final message asks the user numbered questions (1., 2., ...)
+      and every question has a recommended answer under it, and the message ends
+      by waiting for the user's reply (for example "reply ok or change one by
+      number"). FAIL when any question lacks a recommended answer, when the
+      questions are not numbered, when it asks nothing, or when it says the
+      feature was built, implemented or committed.
+  - name: no-spec-yet
+    type: file_exists
+    path: docs/specs/SPEC-*.md
+    exists: false
+  - name: no-implementer
+    type: tool_used
+    tool: Agent
+    input_match: 'implementer'
+    min: 0
+    max: 0
+  - name: no-worktree
+    type: tool_used
+    tool: Bash
+    input_match: 'git worktree add'
+    min: 0
+    max: 0
+  # Ends its turn: a run that hits max_turns or the timeout is a run error, so the
+  # score drops without a grader. This one catches a turn that ends mid-work.
+  - name: ends-its-turn
+    type: llm
+    criteria: >
+      PASS when the final message is a complete stopping point addressed to the
+      user (questions or a request for a reply), not a progress note that says it
+      will now go on to write the spec, create a worktree or start building.
