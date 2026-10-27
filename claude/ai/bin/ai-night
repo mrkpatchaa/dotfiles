@@ -4,6 +4,8 @@
 #   ai-night docs/tasks/<batch>-handoff.md [more handoffs…]   (paths absolute or relative to where you run it)
 #   ai-night --smoke          5-minute check of what headless runs can do on this machine (run it once, before the first night)
 #   ai-night --report [N]     the last N lines of the night log (default 20)
+#   ai-night --receipts [--days N] [--backfill]   accepted / rejected spec runs and the cost per accepted spec (0.22.0, default 30 days);
+#                             --backfill writes receipts for the runs already in the night log first
 #   ai-night --audit <repo> <folder>… [--dry-run]   /ai:test-audit Stages 1–2 per folder, one fresh session each (0.17.0); each run writes
 #                             docs/tasks/test-audit-<folder>.md for you to approve in the morning. AI_NIGHT_AUDIT_EFFORT=medium
 # Options: --parallel 2   handoffs of different repos side by side (default 1, at most 2: Claude's limits, and 3 Codex slots)
@@ -12,6 +14,8 @@
 #          AI_NIGHT_AUTOCOMPACT=250000  compaction window for each run, in tokens (0.18.1: 250k; 0.14.5: 400k, not near 967k)
 #          AI_NIGHT_BUDGET=40  --max-budget-usd for each spec run, in API-equivalent dollars (0.14.8; 0 = no cap). A run that hits it
 #          ends without a Status change, so the handoff stops as "no progress".
+#          AI_NIGHT_RECEIPTS=~/devs/.ai-night/receipts (AI_NIGHT_REPOS=~/devs for --backfill)  one JSON receipt per spec run, one SUMMARY.md per night (0.22.0). Inside ~/devs so
+#          Cowork and the efficiency pass can read it, outside every repo. Accepted = the run's branch tip is in its base (merge commit, not squash).
 # Why one session per spec: every call re-reads the whole conversation (4 Oct 2026: one session built 8 specs and its median call read 672k
 # tokens). Each spec starts fresh here, near 90k. `claude` is called directly, so no advisor (an advisor consult re-reads the transcript uncached).
 # AUTO_HANDOFF_DISABLE=1 keeps the claude-auto-handoff mod out of these runs: a fresh session per spec already does its job, and /clear has no place in -p.
@@ -24,13 +28,15 @@ set -u
 ND="$STATE_DIR/night"; mkdir -p "$ND"; LOG="$STATE_DIR/night.log"
 MODEL="${AI_NIGHT_MODEL:-opus}"; EFFORT="${AI_NIGHT_EFFORT:-high}"; PERM="${AI_NIGHT_PERMISSION:-auto}"; TURNS="${AI_NIGHT_MAX_TURNS:-400}"
 MAXWAIT="${AI_NIGHT_MAX_WAIT:-21600}"; PAR=1; MAXSPECS=20; DRY=0
-ACW="${AI_NIGHT_AUTOCOMPACT:-250000}"; BUDGET="${AI_NIGHT_BUDGET:-40}"
+ACW="${AI_NIGHT_AUTOCOMPACT:-250000}"; BUDGET="${AI_NIGHT_BUDGET:-40}"; RCPT="${AI_NIGHT_RECEIPTS:-$HOME/devs/.ai-night/receipts}"
 BUDGET_ARGS=(); [ "$BUDGET" != 0 ] && BUDGET_ARGS=(--max-budget-usd "$BUDGET")
 say() { echo "ai-night: $*" >&2; }
 nlog() { printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$1" "$2" "$3" "$4" "$(printf '%s' "$5" | tr '\t\n' '  ' | cut -c1-240)" >> "$LOG"; }
 statuses() { grep -E '^Status:[[:space:]]*[a-z]+' "$1" 2>/dev/null | sed -E 's/^Status:[[:space:]]*([a-z]+).*/\1/' | tr '\n' ' '; }
 left() { statuses "$1" | tr ' ' '\n' | grep -Ec '^(approved|building)$'; }
 awake() { if command -v caffeinate >/dev/null 2>&1; then caffeinate -i "$@"; else "$@"; fi; }   # macOS: no idle sleep while it runs
+rcpt() {  # rcpt <out.json> <repo> <handoff> <n> <outcome> <sec> <before> <after>: a receipt never stops the night
+  "$_PY" "$_BIN/_receipts.py" write "$RCPT" "$@" > /dev/null 2>&1 || say "receipt not written for run $4 (see $_BIN/_receipts.py)"; }
 json_field() { "$_PY" -c 'import json,sys
 try: d=json.load(open(sys.argv[1]))
 except Exception: sys.exit(0)
@@ -53,12 +59,13 @@ run_handoff() {  # run_handoff <absolute handoff path>
     sec=$(( $(now) - t0 )); after="$(statuses "$h")"; cost="$(json_field "$out" total_cost_usd)"; sid="$(json_field "$out" session_id)"
     w="$(limit_wait "$out" "$err")"
     if [ -n "$w" ]; then
-      if [ "$w" -le "$MAXWAIT" ]; then say "$name: Claude limit — waiting $(fmt_dur "$w"), then the same spec again"; nlog "$name" "$rel" "$n" limit "${sec}s; wait $(fmt_dur "$w"); $after"; sleep "$w"; n=$(( n - 1 )); continue
+      if [ "$w" -le "$MAXWAIT" ]; then say "$name: Claude limit — waiting $(fmt_dur "$w"), then the same spec again"; nlog "$name" "$rel" "$n" limit "${sec}s; wait $(fmt_dur "$w"); $after"; rcpt "$out" "$repo" "$h" "$n" limit "$sec" "$before" "$after"; sleep "$w"; n=$(( n - 1 )); continue
       else say "$name: Claude limit resets in $(fmt_dur "$w") — stopping"; nlog "$name" "$rel" "$n" stopped "limit in $(fmt_dur "$w")"; break; fi
     fi
-    if [ "$rc" -ne 0 ]; then errs=$(( errs + 1 )); say "$name: claude exited $rc ($(tail -c 300 "$err" | tr '\n' ' '))"; nlog "$name" "$rel" "$n" error "exit $rc; ${sec}s; ${cost:+\$$cost; }$after"
+    if [ "$rc" -ne 0 ]; then errs=$(( errs + 1 )); rcpt "$out" "$repo" "$h" "$n" error "$sec" "$before" "$after"; say "$name: claude exited $rc ($(tail -c 300 "$err" | tr '\n' ' '))"; nlog "$name" "$rel" "$n" error "exit $rc; ${sec}s; ${cost:+\$$cost; }$after"
       [ "$before" != "$after" ] && [ "$errs" -lt 2 ] && continue; break; fi
-    if [ "$before" = "$after" ]; then say "$name: no Status line changed — stopping this handoff (see $out)"; nlog "$name" "$rel" "$n" no-progress "${sec}s; ${cost:+\$$cost; }session $sid"; break; fi
+    if [ "$before" = "$after" ]; then rcpt "$out" "$repo" "$h" "$n" no-progress "$sec" "$before" "$after"; say "$name: no Status line changed — stopping this handoff (see $out)"; nlog "$name" "$rel" "$n" no-progress "${sec}s; ${cost:+\$$cost; }session $sid"; break; fi
+    rcpt "$out" "$repo" "$h" "$n" ok "$sec" "$before" "$after"
     nlog "$name" "$rel" "$n" ok "${sec}s; ${cost:+\$$cost; }$after; session $sid"
   done
   rm -rf "$ND/lock-$name"; }
@@ -108,7 +115,10 @@ smoke() {  # three questions the docs leave open, asked of a throwaway repo with
   else echo "    it ends after ${sec}s and the command is dropped: the unattended rule (ai-bg, foreground subagents) is required"; fi
   echo "Throwaway repo: $d (delete it when you like). Paste these lines to Claude in Cowork."; }
 
-case "${1:-}" in --smoke) smoke; exit $? ;; --audit) shift; audit "$@"; exit $? ;; --report) tail -n "${2:-20}" "$LOG" 2>/dev/null | column -t -s "$(printf '\t')" 2>/dev/null || tail -n "${2:-20}" "$LOG"; exit 0 ;; -h|--help|"") sed -n '2,19p' "$0" >&2; exit 64 ;; esac
+case "${1:-}" in --smoke) smoke; exit $? ;; --audit) shift; audit "$@"; exit $? ;; --receipts) shift; days=30; bf=0; while [ $# -gt 0 ]; do case "$1" in --days) days="${2:-30}"; shift 2 ;; --backfill) bf=1; shift ;; *) shift ;; esac; done
+    [ "$bf" = 1 ] && "$_PY" "$_BIN/_receipts.py" backfill "$RCPT" "$LOG" "$ND" "${AI_NIGHT_REPOS:-$HOME/devs}"
+    "$_PY" "$_BIN/_receipts.py" report "$RCPT" --days "$days"; exit $? ;;
+  --report) tail -n "${2:-20}" "$LOG" 2>/dev/null | column -t -s "$(printf '\t')" 2>/dev/null || tail -n "${2:-20}" "$LOG"; exit 0 ;; -h|--help|"") sed -n '2,25p' "$0" >&2; exit 64 ;; esac
 H=""
 while [ $# -gt 0 ]; do case "$1" in
   --parallel) PAR="${2:-1}"; shift 2 ;; --max-specs) MAXSPECS="${2:-20}"; shift 2 ;; --dry-run) DRY=1; shift ;;
