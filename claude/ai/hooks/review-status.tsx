@@ -22,6 +22,7 @@ const WORK_RULES = [
   '- Tests: while you work, run only the tests for the code you changed. Run the full suite once, before you report or commit. A run that reports zero tests, or stops before it loads the test files, is a failure.',
   '- Waiting: never poll with sleep loops or repeated status checks. Run a long command in the foreground with a timeout, or in the background and wait for its exit notice. Watch CI the same way (`gh run watch <id> --exit-status` in the background).',
   '- Delegation: routine read-only checks (device or simulator QA, screenshot and store-listing reviews, audits) go to the ai `checker` agent, builds to the `implementer`, not to `general-purpose`.',
+  '- Data exposure: when a design adds or changes a table, column, policy, view or function, state who can read each column (anon, any signed-in user, owner, member, admin) and on which rows. Grant a public read only for what a public page shows, and never copy data into a more readable table. Removing a read path that a shipped mobile app uses needs a release and a minimum-version gate first.',
   '- Parked plugins (installed, turned off to keep every request small): agent-skills (spec, review, performance and security workflows), superset (orchestration), claude-api (Claude API and SDK work, the prompt audit at each model release), typescript-lsp (type-aware code navigation), image-view (images in the terminal). When a task fits one, name it to the user and say it is off in /plugin. Do not work around it.',
 ].join('\n')
 
