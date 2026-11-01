@@ -247,8 +247,9 @@ if [ "${REVIEW_NO_OPENCODE:-0}" != "1" ] && ! cheap_lane_off && command -v openc
   # Read-only reviewer: edits and shell denied except git read commands. opencode 2.x ignores OPENCODE_PERMISSION (1.x read it) and takes
   # the rules from OPENCODE_CONFIG_CONTENT: on 1 Nov 2026 a 2.1.4 review under OPENCODE_PERMISSION alone created files with touch, echo and write.
   # Exact subcommands only ("git diff *", not "git diff*", which also matched `git difftool -x`), and the later deny rules win over them:
-  # chaining, redirection, substitution, --output and external diff drivers. Tested on 2.1.4 with nine escapes (evals/reviewer-read-only.sh).
-  OC_REVIEW_PERM='{"edit":"deny","bash":{"*":"deny","git diff":"allow","git diff *":"allow","git status":"allow","git status *":"allow","git log":"allow","git log *":"allow","git show":"allow","git show *":"allow","*;*":"deny","*&*":"deny","*|*":"deny","*>*":"deny","*<*":"deny","*`*":"deny","*$*":"deny","*\n*":"deny","*--output*":"deny","*--ext-diff*":"deny","*--textconv*":"deny"}}'
+  # chaining, redirection, substitution, --output, external diff drivers and --no-index, each also in its abbreviated form (git takes --outp
+  # for --output). Web tools and reads outside the worktree are denied too. Tested on 2.1.4 with fifteen escapes (evals/reviewer-read-only.sh).
+  OC_REVIEW_PERM='{"edit":"deny","webfetch":"deny","websearch":"deny","external_directory":"deny","bash":{"*":"deny","git diff":"allow","git diff *":"allow","git status":"allow","git status *":"allow","git log":"allow","git log *":"allow","git show":"allow","git show *":"allow","*;*":"deny","*&*":"deny","*|*":"deny","*>*":"deny","*<*":"deny","*`*":"deny","*$*":"deny","*\n*":"deny","*--ou*":"deny","*--ex*":"deny","*--te*":"deny","*--no-index*":"deny"}}'
   go_limited=0; OC_ISO="$(oc_standalone)"   # a private server per call: a killed review must not run on (see _common.sh)
   # Free models (OPENCODE_FREE_MODELS) are asked before the paid fallbacks; REVIEW_FREE=0 keeps them out of reviews.
   FB=""; FREE=""; [ "${REVIEW_FREE:-1}" = 0 ] || FREE="$(free_models)"
