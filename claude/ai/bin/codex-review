@@ -244,12 +244,20 @@ fi
 # --print-logs puts the provider's error on stderr where the watchdog reads it, and silence past AI_STALL_TIMEOUT kills the lane.
 if cheap_lane_off; then echo "codex-review: the cheap lane is off here (ai-lane) — no OpenCode fallback" >&2; fi
 if [ "${REVIEW_NO_OPENCODE:-0}" != "1" ] && ! cheap_lane_off && command -v opencode >/dev/null 2>&1; then
-  # Read-only reviewer: edits and shell denied except git read commands. opencode 2.x ignores OPENCODE_PERMISSION (1.x read it) and takes
-  # the rules from OPENCODE_CONFIG_CONTENT: on 1 Nov 2026 a 2.1.4 review under OPENCODE_PERMISSION alone created files with touch, echo and write.
-  # Exact subcommands only ("git diff *", not "git diff*", which also matched `git difftool -x`), and the later deny rules win over them:
-  # chaining, redirection, substitution, --output, external diff drivers and --no-index, each also in its abbreviated form (git takes --outp
-  # for --output). Web tools and reads outside the worktree are denied too. Tested on 2.1.4 with fifteen escapes (evals/reviewer-read-only.sh).
-  OC_REVIEW_PERM='{"edit":"deny","webfetch":"deny","websearch":"deny","external_directory":"deny","bash":{"*":"deny","git diff":"allow","git diff *":"allow","git status":"allow","git status *":"allow","git log":"allow","git log *":"allow","git show":"allow","git show *":"allow","*;*":"deny","*&*":"deny","*|*":"deny","*>*":"deny","*<*":"deny","*`*":"deny","*$*":"deny","*\n*":"deny","*--ou*":"deny","*--ex*":"deny","*--te*":"deny","*--no-index*":"deny"}}'
+  # Read-only reviewer (0.22.2): no shell at all. codex-review writes the diffs the prompt names into one file and attaches it. The reviewer
+  # reads other files with its read tool, inside the worktree only. Edits and web tools are denied. opencode 2.x ignores OPENCODE_PERMISSION
+  # (1.x read it) and takes the rules from OPENCODE_CONFIG_CONTENT. On 1 Nov 2026 a 2.1.4 review under OPENCODE_PERMISSION alone wrote files
+  # with touch, echo and write. A git allowlist kept leaking: `git diff*` matched `git difftool -x`, git takes --outp for --output, the shell
+  # rejoins --o''utput, and `git diff /dev/null <file>` reads any file. Check: evals/reviewer-read-only.sh.
+  OC_REVIEW_PERM='{"edit":"deny","bash":"deny","webfetch":"deny","websearch":"deny","external_directory":"deny"}'
+  OC_TMP="$(mktemp -d)"; trap 'lane_status_clear; codex_slot_free; rm -rf "$OC_TMP"' EXIT
+  OC_ATTACH=(); OC_PROMPT="$PROMPT"
+  if [ "$MODE" != spec ]; then
+    { if [ -n "${OLD:-}" ]; then echo "### git diff $OLD $TREE -- . ':(exclude)docs/tasks'"; git diff "$OLD" "$TREE" -- . ':(exclude)docs/tasks'; echo; fi
+      echo "### git diff $BASE -- . ':(exclude)docs/tasks'"; git diff "$BASE" -- . ':(exclude)docs/tasks'; } > "$OC_TMP/review.diff" 2>&1
+    OC_ATTACH=(-f "$OC_TMP/review.diff")
+    OC_PROMPT="You have no shell in this review. Where this prompt says to run a git command, its output is in the attached file review.diff, one section per command. Read other files of the worktree with your read tool. $PROMPT"
+  fi
   go_limited=0; OC_ISO="$(oc_standalone)"   # a private server per call: a killed review must not run on (see _common.sh)
   # Free models (OPENCODE_FREE_MODELS) are asked before the paid fallbacks; REVIEW_FREE=0 keeps them out of reviews.
   FB=""; FREE=""; [ "${REVIEW_FREE:-1}" = 0 ] || FREE="$(free_models)"
@@ -264,11 +272,11 @@ if [ "${REVIEW_NO_OPENCODE:-0}" != "1" ] && ! cheap_lane_off && command -v openc
     out="$(mktemp)"; err="$(mktemp)"; lt_saved="$LANE_TIMEOUT"; st_saved="$STALL_TIMEOUT"
     if is_free "$m"; then free_tried=$(( free_tried + 1 )); [ "$LANE_TIMEOUT" -le "${REVIEW_FREE_TIMEOUT:-600}" ] || LANE_TIMEOUT="${REVIEW_FREE_TIMEOUT:-600}"; [ "$STALL_TIMEOUT" -le "$LANE_TIMEOUT" ] || STALL_TIMEOUT="$LANE_TIMEOUT"; fi
     run_lane "codex-review: $m" "$out" "$err" env OPENCODE_PERMISSION="$OC_REVIEW_PERM" OPENCODE_CONFIG_CONTENT="{\"permission\":$OC_REVIEW_PERM}" \
-      opencode run $OC_ISO --print-logs --model "$m#high" --auto "$PROMPT"; rc=$?   # opencode 2.x: variant rides on the model id
+      opencode run $OC_ISO --print-logs --model "$m#high" --auto ${OC_ATTACH[@]+"${OC_ATTACH[@]}"} "$OC_PROMPT"; rc=$?   # opencode 2.x: variant rides on the model id
     if [ $rc -ne 0 ] && [ $rc -lt 200 ] && variant_unavailable "$err"; then   # kimi-k3 has no `high` variant (1 Oct 2026): once more with the model's default
       echo "codex-review: $m has no high variant — retrying without one" >&2; : > "$out"; : > "$err"
       run_lane "codex-review: $m" "$out" "$err" env OPENCODE_PERMISSION="$OC_REVIEW_PERM" OPENCODE_CONFIG_CONTENT="{\"permission\":$OC_REVIEW_PERM}" \
-        opencode run $OC_ISO --print-logs --model "$m" --auto "$PROMPT"; rc=$?
+        opencode run $OC_ISO --print-logs --model "$m" --auto ${OC_ATTACH[@]+"${OC_ATTACH[@]}"} "$OC_PROMPT"; rc=$?
     fi
     LANE_TIMEOUT="$lt_saved"; STALL_TIMEOUT="$st_saved"
     if [ $rc -eq 0 ] && [ -s "$out" ]; then
