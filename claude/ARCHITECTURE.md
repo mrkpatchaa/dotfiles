@@ -158,7 +158,7 @@ flowchart TD
   MARK -->|"yes, recent"| SKIPC
   MARK -->|no| PRE{"Pre-flight: Codex usage file<br/>shows a window at 100 %?"}
   PRE -->|yes| SKIPC
-  PRE -->|no| WEEK{"7-day window<br/>≥ 80 %?"}
+  PRE -->|no| WEEK{"7-day window<br/>≥ 90 %?"}
   WEEK -->|yes| DOWN["Downgrade: gpt-6-luna at max<br/>(high when budget < 900 s)"] --> RUNC
   WEEK -->|no| RUNC["Run Codex<br/>codex exec --json, read-only sandbox"]
   RUNC -->|verdict| OK(["Exit 0 · REVIEWER: codex (model)"])

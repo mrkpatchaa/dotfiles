@@ -26,7 +26,7 @@
 #        CODEX_STALL_TIMEOUT=600 the same for Codex, which can reason for minutes without printing and stops by itself when limited
 #        AI_LIMIT_COOLDOWN=1800  skip time for a limited lane that did not say when it resets (when it does say, that time is used)
 #        CODEX_PREFLIGHT=0 → don't read Codex's own usage data before calling it     CODEX_REVIEW_JSON=0 → plain `codex exec` output
-#        CODEX_WEEKLY_DOWNGRADE_AT=80   once Codex's last usage snapshot shows the 7-day window at this % or more, every review runs on
+#        CODEX_WEEKLY_DOWNGRADE_AT=90   once Codex's last usage snapshot shows the 7-day window at this % or more, every review runs on
 #        CODEX_REVIEW_MODEL_CHEAP=gpt-6-luna at CODEX_REVIEW_EFFORT_CHEAP=high (max is lowered to high when REVIEW_BUDGET < 900) and the REVIEWER line says so (0 = never downgrade)
 #        Every call appends one line per lane to $STATE_DIR/reviews.log — `ai-limits log` shows who answered, the verdict and why not
 #        CODEX_RECHECK_EVERY=1800  a stored Codex skip, or a snapshot that would downgrade, older than this is re-checked with a one-word
@@ -78,7 +78,7 @@ if [ "$MODE" = diff ] && [ -n "${FOCUS:-}" ]; then CM="${CODEX_REVIEW_MODEL_RISK
 if [ "$MODE" = spec ]; then CM="${CODEX_REVIEW_MODEL_SPEC:-$CM}"; CE="${CODEX_REVIEW_EFFORT_SPEC:-$CE}"; fi
 # Boost (0.21.0): OpenAI's 28-day pledge (from 4 Oct 2026: an improvement or a full reset each day) resets the Codex window every few days.
 # 13–20 Oct 2026: three windows ended early, at 82 %, 91 % and 35 %. The points left at a reset are lost, so until CODEX_BOOST_UNTIL the full
-# diff and spec reviews go back to the 0.15 tiers. Rechecks and the commit hook stay cheap. Past 80 % the weekly downgrade still takes over.
+# diff and spec reviews go back to the 0.15 tiers. Rechecks and the commit hook stay cheap. Past 90 % the weekly downgrade still takes over.
 BOOSTED=""
 if [ -n "${CODEX_BOOST_UNTIL:-}" ] && [ "${REVIEW_CALLER:-manual}" != hook ] && [[ "$(date -u +%Y-%m-%d)" < "$CODEX_BOOST_UNTIL" ]]; then
   b_cm=""; b_ce=""
@@ -197,7 +197,7 @@ else
   fi
   # Weekly budget: past CODEX_WEEKLY_DOWNGRADE_AT % of the 7-day window (Codex's own last snapshot, free to read), every review runs on the
   # cheap tier. 21–24 Sep 2026: 20 Astra + 22 Sol reviews spent a Plus week in 2.5 days; 14 Luna reviews on the same days did not move the counter.
-  WEEKLY="$(weekly_used)"; DOWN_AT="${CODEX_WEEKLY_DOWNGRADE_AT:-80}"; CHEAP="${CODEX_REVIEW_MODEL_CHEAP:-gpt-6-luna}"; downgraded=""
+  WEEKLY="$(weekly_used)"; DOWN_AT="${CODEX_WEEKLY_DOWNGRADE_AT:-90}"; CHEAP="${CODEX_REVIEW_MODEL_CHEAP:-gpt-6-luna}"; downgraded=""
   # The figure may be stale too (a reset since the last turn): a snapshot older than CODEX_RECHECK_EVERY that would downgrade is refreshed first.
   if ! recently_limited codex && [ "$DOWN_AT" != 0 ] && [ -n "$WEEKLY" ] && [ "$WEEKLY" -ge "$DOWN_AT" ] && [ "$CM" != "$CHEAP" ] \
      && [ "$(snapshot_age)" -ge "${CODEX_RECHECK_EVERY:-1800}" ] 2>/dev/null && recheck_due; then codex_probe; WEEKLY="$(weekly_used)"; fi

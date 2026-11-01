@@ -80,6 +80,6 @@ for f in "$STATE_DIR"/*.limited; do
 done
 [ $found -eq 1 ] || echo "no lane has reported a limit"
 "$_PY" "$_BIN/_limits.py" codex-usage 2>/dev/null
-w="$("$_PY" "$_BIN/_limits.py" codex-usage --weekly --since "$(mtime "$STATE_DIR/cleared")" 2>/dev/null | tr -cd '0-9')"; d="${CODEX_WEEKLY_DOWNGRADE_AT:-80}"
+w="$("$_PY" "$_BIN/_limits.py" codex-usage --weekly --since "$(mtime "$STATE_DIR/cleared")" 2>/dev/null | tr -cd '0-9')"; d="${CODEX_WEEKLY_DOWNGRADE_AT:-90}"
 [ -n "$w" ] && [ "$d" != 0 ] && [ "$w" -ge "$d" ] && echo "codex: 7-day window at ${w}% ≥ CODEX_WEEKLY_DOWNGRADE_AT ($d) — every review runs on ${CODEX_REVIEW_MODEL_CHEAP:-gpt-6-luna} until it resets. \`ai-limits log\` lists the calls."
 echo "opencode-go: no usage API yet (anomalyco/opencode #31084) — windows are on the console page; a reset time is known only once a model has refused."
