@@ -244,6 +244,11 @@ fi
 # --print-logs puts the provider's error on stderr where the watchdog reads it, and silence past AI_STALL_TIMEOUT kills the lane.
 if cheap_lane_off; then echo "codex-review: the cheap lane is off here (ai-lane) — no OpenCode fallback" >&2; fi
 if [ "${REVIEW_NO_OPENCODE:-0}" != "1" ] && ! cheap_lane_off && command -v opencode >/dev/null 2>&1; then
+  # Read-only reviewer: edits and shell denied except git read commands. opencode 2.x ignores OPENCODE_PERMISSION (1.x read it) and takes
+  # the rules from OPENCODE_CONFIG_CONTENT: on 1 Nov 2026 a 2.1.4 review under OPENCODE_PERMISSION alone created files with touch, echo and write.
+  # Exact subcommands only ("git diff *", not "git diff*", which also matched `git difftool -x`), and the later deny rules win over them:
+  # chaining, redirection, substitution, --output and external diff drivers. Tested on 2.1.4 with nine escapes (evals/reviewer-read-only.sh).
+  OC_REVIEW_PERM='{"edit":"deny","bash":{"*":"deny","git diff":"allow","git diff *":"allow","git status":"allow","git status *":"allow","git log":"allow","git log *":"allow","git show":"allow","git show *":"allow","*;*":"deny","*&*":"deny","*|*":"deny","*>*":"deny","*<*":"deny","*`*":"deny","*$*":"deny","*\n*":"deny","*--output*":"deny","*--ext-diff*":"deny","*--textconv*":"deny"}}'
   go_limited=0; OC_ISO="$(oc_standalone)"   # a private server per call: a killed review must not run on (see _common.sh)
   # Free models (OPENCODE_FREE_MODELS) are asked before the paid fallbacks; REVIEW_FREE=0 keeps them out of reviews.
   FB=""; FREE=""; [ "${REVIEW_FREE:-1}" = 0 ] || FREE="$(free_models)"
@@ -257,11 +262,11 @@ if [ "${REVIEW_NO_OPENCODE:-0}" != "1" ] && ! cheap_lane_off && command -v openc
     fit_budget || { echo "codex-review: review budget of ${BUDGET}s used up" >&2; break; }
     out="$(mktemp)"; err="$(mktemp)"; lt_saved="$LANE_TIMEOUT"; st_saved="$STALL_TIMEOUT"
     if is_free "$m"; then free_tried=$(( free_tried + 1 )); [ "$LANE_TIMEOUT" -le "${REVIEW_FREE_TIMEOUT:-600}" ] || LANE_TIMEOUT="${REVIEW_FREE_TIMEOUT:-600}"; [ "$STALL_TIMEOUT" -le "$LANE_TIMEOUT" ] || STALL_TIMEOUT="$LANE_TIMEOUT"; fi
-    run_lane "codex-review: $m" "$out" "$err" env OPENCODE_PERMISSION='{"edit":"deny","bash":{"*":"deny","git diff*":"allow","git status*":"allow","git log*":"allow","git show*":"allow"}}' \
+    run_lane "codex-review: $m" "$out" "$err" env OPENCODE_PERMISSION="$OC_REVIEW_PERM" OPENCODE_CONFIG_CONTENT="{\"permission\":$OC_REVIEW_PERM}" \
       opencode run $OC_ISO --print-logs --model "$m#high" --auto "$PROMPT"; rc=$?   # opencode 2.x: variant rides on the model id
     if [ $rc -ne 0 ] && [ $rc -lt 200 ] && variant_unavailable "$err"; then   # kimi-k3 has no `high` variant (1 Oct 2026): once more with the model's default
       echo "codex-review: $m has no high variant — retrying without one" >&2; : > "$out"; : > "$err"
-      run_lane "codex-review: $m" "$out" "$err" env OPENCODE_PERMISSION='{"edit":"deny","bash":{"*":"deny","git diff*":"allow","git status*":"allow","git log*":"allow","git show*":"allow"}}' \
+      run_lane "codex-review: $m" "$out" "$err" env OPENCODE_PERMISSION="$OC_REVIEW_PERM" OPENCODE_CONFIG_CONTENT="{\"permission\":$OC_REVIEW_PERM}" \
         opencode run $OC_ISO --print-logs --model "$m" --auto "$PROMPT"; rc=$?
     fi
     LANE_TIMEOUT="$lt_saved"; STALL_TIMEOUT="$st_saved"
