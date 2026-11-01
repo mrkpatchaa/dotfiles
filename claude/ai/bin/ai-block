@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# ai-block — keep the managed ai-loop block of every repo's AGENTS.md equal to claude/ai-loop-block.md (0.22.3).
+# Usage: ai-block check [repo…]   lists each repo whose block differs from the master copy, with its word count (exit 1 when one differs)
+#        ai-block sync  [repo…]   writes the master copy over each repo's block; the rest of AGENTS.md stays as it is
+# Without repos: every AGENTS.md under ~/devs (depth 3) that carries a BEGIN:ai-loop line. Edit the master copy, then sync.
+# Why: until 1 Nov 2026 each edit landed in one repo, and seven repos carried four versions of the block (1,141 to 1,220 words).
+# A line that belongs to one repo goes outside the block. sync does not commit: review `git diff AGENTS.md` in each repo.
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+MASTER="${AI_BLOCK_MASTER:-$here/../../ai-loop-block.md}"
+[ -f "$MASTER" ] || { echo "ai-block: no master copy at $MASTER" >&2; exit 2; }
+cmd="${1:-check}"; [ $# -gt 0 ] && shift
+case "$cmd" in check|sync) ;; -h|--help) sed -n '2,7p' "$0"; exit 0 ;; *) echo "ai-block: unknown command $cmd (check | sync)" >&2; exit 2 ;; esac
+files=()
+if [ $# -gt 0 ]; then for r in "$@"; do files+=("${r%/}/AGENTS.md"); done
+else while IFS= read -r f; do files+=("$f"); done < <(find "$HOME/devs" -maxdepth 3 -name AGENTS.md -not -path '*/node_modules/*' -not -path '*/.claude/worktrees/*' -exec grep -l 'BEGIN:ai-loop' {} + 2>/dev/null | sort); fi
+python3 -I - "$cmd" "$MASTER" "${files[@]}" <<'EOF'
+import sys
+cmd, master, files = sys.argv[1], open(sys.argv[2]).read().rstrip('\n'), sys.argv[3:]
+B, E = '<!-- BEGIN:ai-loop', '<!-- END:ai-loop -->'
+bad = 0
+for f in files:
+    try: s = open(f).read()
+    except OSError: print(f'{f}: missing'); bad = 1; continue
+    i, j = s.find(B), s.find(E)
+    if i < 0 or j < i: print(f'{f}: no block'); continue
+    cur = s[i:j + len(E)]
+    if cur == master: print(f'{f}: same'); continue
+    if cmd == 'sync':
+        open(f, 'w').write(s[:i] + master + s[j + len(E):]); print(f'{f}: synced ({len(cur.split())} → {len(master.split())} words)')
+    else:
+        print(f'{f}: differs ({len(cur.split())} words, master {len(master.split())})'); bad = 1
+sys.exit(bad)
+EOF

@@ -18,7 +18,7 @@ const SHOW_LAST_S = 10 * 60   // how long the last result stays on the band
 // 10–17 Oct 2026 transcripts: 817 sleep/poll calls (17.8 h), 2,238 test runs, 40 general-purpose subagents at the session's effort.
 const WORK_RULES = [
   'Work rules from the ai plugin:',
-  '- New tests: write one only for a bug reproducer or a check the spec\'s "Done means" names, e2e or integration first. No tests for refactors, UI layout, copy or config. Never add a test that repeats an existing one or a flow an e2e test covers.',
+  '- New tests: write one only for a bug reproducer or a check the spec\'s "Done means" names, e2e or integration first. No tests for refactors, UI layout, copy or config. Never add a test that repeats an existing one or a flow an e2e test covers. A bug fix\'s regression test must fail on the old code.',
   '- Tests: while you work, run only the tests for the code you changed. Run the full suite once, before you report or commit. A run that reports zero tests, or stops before it loads the test files, is a failure.',
   '- Waiting: never poll with sleep loops or repeated status checks. Run a long command in the foreground with a timeout, or in the background and wait for its exit notice. Watch CI the same way (`gh run watch <id> --exit-status` in the background).',
   '- Delegation: routine read-only checks (device or simulator QA, screenshot and store-listing reviews, audits) go to the ai `checker` agent, builds to the `implementer`, not to `general-purpose`.',
