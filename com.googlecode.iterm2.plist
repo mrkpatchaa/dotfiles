@@ -65,8 +65,12 @@
 	<true/>
 	<key>HapticFeedbackForEsc</key>
 	<false/>
+	<key>HideTabNumber</key>
+	<false/>
 	<key>HotkeyMigratedFromSingleToMulti</key>
 	<true/>
+	<key>LeftTabBarWidth</key>
+	<real>219</real>
 	<key>New Bookmarks</key>
 	<array>
 		<dict>
@@ -429,7 +433,7 @@
 			<key>Terminal Type</key>
 			<string>xterm-256color</string>
 			<key>Transparency</key>
-			<real>0.29850398936170214</real>
+			<real>0.068503989361702017</real>
 			<key>Triggers</key>
 			<array>
 				<dict>
@@ -539,6 +543,14 @@
 	<key>QuitWhenAllWindowsClosed</key>
 	<true/>
 	<key>SoundForEsc</key>
+	<false/>
+	<key>StretchTabsToFillBar</key>
+	<true/>
+	<key>TabStyleWithAutomaticOption</key>
+	<integer>4</integer>
+	<key>TabViewType</key>
+	<integer>2</integer>
+	<key>TabsHaveCloseButton</key>
 	<false/>
 	<key>ToolbeltTools</key>
 	<array>
