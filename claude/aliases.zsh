@@ -61,7 +61,8 @@ export CODEX_REVIEW_EFFORT_SPEC="max"
 # window every few days. 13–20 Oct: three windows ended early, at 82 %, 91 % and 35 % (the last two under these Luna tiers, ~17 points a day).
 # The 0.15 tiers spent ~40 points a day, about one window per reset. So until CODEX_BOOST_UNTIL, full diff and spec reviews use them again.
 # Rechecks and the commit hook stay on Luna. The 90 % downgrade still applies. Past the date, or with CODEX_BOOST_UNTIL unset, the tiers above apply.
-export CODEX_BOOST_UNTIL="2026-11-01"
+# 2 Nov 2026: extended to the end of November (set to 1 Dec, the check is "before that day"). The owner still has Codex resets left.
+export CODEX_BOOST_UNTIL="2026-12-01"
 export CODEX_REVIEW_MODEL_BOOST="gpt-6.1-sol"        # ordinary diff review, ~1.1–1.7 % of the week per run (Luna max ~0.15–0.3 %)
 export CODEX_REVIEW_EFFORT_BOOST="medium"
 export CODEX_REVIEW_MODEL_RISKY_BOOST="gpt-6.1-sol"  # diff review with a focus. high sits between medium and xhigh (~1.9 % per run)
