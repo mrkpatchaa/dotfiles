@@ -44,11 +44,11 @@ def branch_commits(repo, tip, base):
 
 def branch_tip(repo, branch, base):
     """The branch tip. A merged branch is often deleted: then the second parent of the merge commit that names it."""
-    tip = git(repo, "rev-parse", "--verify", "-q", branch)
+    tip = git(repo, "rev-parse", "--verify", "-q", "--end-of-options", branch)
     if tip:
         return tip
     names = (f"Merge branch '{branch}'", f"Merge branch '{branch}' into ")
-    merges = git(repo, "log", base, "--merges", "--first-parent", "-n", "500", "--format=%P%x09%s") or ""
+    merges = git(repo, "log", "--merges", "--first-parent", "-n", "500", "--format=%P%x09%s", "--end-of-options", base) or ""
     for line in merges.splitlines():
         parents, _, subject = line.partition("\t")
         parents = parents.split()
