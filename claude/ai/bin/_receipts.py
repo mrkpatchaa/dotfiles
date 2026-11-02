@@ -42,11 +42,33 @@ def branch_commits(repo, tip, base):
     return git(repo, "rev-list", "--count", f"{merge}^1..{tip}")
 
 
+def branch_tip(repo, branch, base):
+    """The branch tip. A merged branch is often deleted: then the second parent of the merge commit that names it."""
+    tip = git(repo, "rev-parse", "--verify", "-q", branch)
+    if tip:
+        return tip
+    names = (f"Merge branch '{branch}'", f"Merge branch '{branch}' into ")
+    merges = git(repo, "log", base, "--merges", "--first-parent", "-n", "500", "--format=%P%x09%s") or ""
+    for line in merges.splitlines():
+        parents, _, subject = line.partition("\t")
+        parents = parents.split()
+        pr = re.match(r"^Merge pull request #\d+ from [^/\s]+/(\S+)$", subject)
+        if len(parents) >= 2 and (subject == names[0] or subject.startswith(names[1]) or (pr and pr.group(1) == branch)):
+            return parents[1]
+    return None
+
+
 def handoff_specs(path):
-    """[(spec name, branch, base)] in file order, one per `Status:` line."""
-    try:
-        text = open(path, encoding="utf-8").read()
-    except OSError:
+    """[(spec name, branch, base)] in file order, one per `Status:` line.
+    A finished handoff moves from docs/tasks/ to docs/archive/, so a later backfill looks there too."""
+    text = None
+    for p in (path, path.replace("/docs/tasks/", "/docs/archive/")):
+        try:
+            text = open(p, encoding="utf-8").read()
+            break
+        except OSError:
+            continue
+    if text is None:
         return []
     specs, name, branch, base = [], None, None, None
     for line in text.splitlines():
@@ -85,7 +107,7 @@ def receipt(out_json, repo, handoff, n, outcome, sec, before, after, when):
     i = changed_index(before, after)
     name, branch, base = specs[i] if i is not None and i < len(specs) else (None, None, None)
     base = base or "main"
-    tip = git(repo, "rev-parse", "--verify", "-q", branch) if branch else None
+    tip = branch_tip(repo, branch, base) if branch else None
     commits = branch_commits(repo, tip, base) if tip else None
     after_list = after.split()
     return {
