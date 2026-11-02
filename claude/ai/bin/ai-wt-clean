@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# ai-wt-clean — remove the merged worktrees under .claude/worktrees before a loop builds (0.22.4).
+# Usage: ai-wt-clean <base>   run from the main checkout. A worktree goes when its branch is merged into <base>.
+# Loops symlink node_modules into a worktree. A `node_modules/` ignore line matches directories only, so git sees the
+# symlink as untracked and `git worktree remove` refuses the tree (assigame-next, 31 Oct to 1 Nov 2026: refused six times).
+# This deletes those symlinks first (the link only, never its target), then removes the tree without --force. A tree that
+# still holds changes or other untracked files stays, and is listed. Exit 0 always: the report is the result.
+set -u
+base="${1:?usage: ai-wt-clean <base>}"
+git rev-parse --verify -q --end-of-options "$base" >/dev/null || { echo "ai-wt-clean: no branch $base"; exit 0; }
+top="$(git rev-parse --show-toplevel)"
+removed=0; kept=()
+while IFS= read -r line; do
+  case "$line" in
+    "worktree "*) path="${line#worktree }"; branch="" ;;
+    "branch refs/heads/"*) branch="${line#branch refs/heads/}" ;;
+    "")
+      p="${path:-}"; b="${branch:-}"; path=""; branch=""
+      case "$p" in "$top"/.claude/worktrees/*) ;; *) continue ;; esac
+      [ -n "$b" ] || continue
+      git merge-base --is-ancestor --end-of-options "$b" "$base" 2>/dev/null || continue
+      find "$p" -maxdepth 3 -name node_modules -type l -not -path '*/node_modules/*' -delete 2>/dev/null
+      if git worktree remove -- "$p" 2>/dev/null; then
+        removed=$((removed + 1)); echo "removed ${p#$top/} ($b, merged into $base)"
+      else
+        kept+=("${p#$top/} ($b): $(git -C "$p" status --short 2>/dev/null | head -3 | tr '\n' ' ')")
+      fi ;;
+  esac
+done < <(git worktree list --porcelain; echo)
+git worktree prune
+echo "ai-wt-clean: $removed removed, ${#kept[@]} kept"
+for k in "${kept[@]+"${kept[@]}"}"; do echo "kept, has changes: $k"; done
+exit 0
