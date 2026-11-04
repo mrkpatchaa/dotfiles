@@ -29,7 +29,7 @@
 	<key>AlternateMouseScroll</key>
 	<true/>
 	<key>ClaudeCodeTriggersInstalled</key>
-	<true/>
+	<false/>
 	<key>CodeReviewSavedPrompts</key>
 	<data>
 	W3sidGV4dCI6IlJldmlldyB0aGUgcGVuZGluZyBjaGFuZ2VzIGluIHRoaXMgcmVwby4g
@@ -62,7 +62,7 @@
 	<key>Default Bookmark Guid</key>
 	<string>CFD014D6-F695-48A5-9614-F39491785A99</string>
 	<key>EnableAPIServer</key>
-	<true/>
+	<false/>
 	<key>HapticFeedbackForEsc</key>
 	<false/>
 	<key>HideTabNumber</key>
@@ -322,6 +322,10 @@
 			<true/>
 			<key>Draw Powerline Glyphs</key>
 			<true/>
+			<key>Enable Progress Bars</key>
+			<true/>
+			<key>Enable Triggers in Interactive Apps</key>
+			<true/>
 			<key>Flashing Bell</key>
 			<false/>
 			<key>Foreground Color</key>
@@ -435,52 +439,7 @@
 			<key>Transparency</key>
 			<real>0.068503989361702017</real>
 			<key>Triggers</key>
-			<array>
-				<dict>
-					<key>action</key>
-					<string>iTermEnterWorkgroupTrigger</string>
-					<key>contentregex</key>
-					<string></string>
-					<key>disabled</key>
-					<false/>
-					<key>eventParams</key>
-					<dict>
-						<key>jobName</key>
-						<string>claude</string>
-					</dict>
-					<key>matchType</key>
-					<integer>113</integer>
-					<key>parameter</key>
-					<string>builtin.claudeCode</string>
-					<key>partial</key>
-					<false/>
-					<key>regex</key>
-					<string></string>
-				</dict>
-				<dict>
-					<key>action</key>
-					<string>iTermExitWorkgroupTrigger</string>
-					<key>contentregex</key>
-					<string></string>
-					<key>disabled</key>
-					<false/>
-					<key>eventParams</key>
-					<dict>
-						<key>jobName</key>
-						<string>claude</string>
-						<key>leaderOnly</key>
-						<true/>
-					</dict>
-					<key>matchType</key>
-					<integer>114</integer>
-					<key>parameter</key>
-					<string></string>
-					<key>partial</key>
-					<false/>
-					<key>regex</key>
-					<string></string>
-				</dict>
-			</array>
+			<array/>
 			<key>Unlimited Scrollback</key>
 			<false/>
 			<key>Use Bold Font</key>
@@ -501,10 +460,14 @@
 			<string></string>
 		</dict>
 	</array>
+	<key>NotifyOnlyForCriticalShellIntegrationUpdates</key>
+	<false/>
 	<key>OpenArrangementAtStartup</key>
 	<false/>
 	<key>OpenNoWindowsAtStartup</key>
 	<false/>
+	<key>PassOnControlClick</key>
+	<true/>
 	<key>PointerActions</key>
 	<dict>
 		<key>Button,1,1,,</key>
@@ -549,7 +512,7 @@
 	<key>TabStyleWithAutomaticOption</key>
 	<integer>4</integer>
 	<key>TabViewType</key>
-	<integer>2</integer>
+	<integer>0</integer>
 	<key>TabsHaveCloseButton</key>
 	<false/>
 	<key>ToolbeltTools</key>
@@ -564,34 +527,7 @@
 	<dict/>
 	<key>Workgroups</key>
 	<data>
-	W3sidW5pcXVlSWRlbnRpZmllciI6ImJ1aWx0aW4uY2xhdWRlQ29kZSIsIm5hbWUiOiJD
-	bGF1ZGUgQ29kZSIsInNlc3Npb25zIjpbeyJ0b29sYmFySXRlbXMiOlt7ImtpbmQiOiJt
-	b2RlU3dpdGNoZXIifSx7ImtpbmQiOiJnaXRTdGF0dXMifSx7ImtpbmQiOiJhdXRvUmVx
-	dWVzdFJldmlld1doZW5JZGxlIn1dLCJwZXJGaWxlQ29tbWFuZCI6IiIsImNvbW1hbmQi
-	OiIiLCJ1cmxTdHJpbmciOiIiLCJ1bmlxdWVJZGVudGlmaWVyIjoiYnVpbHRpbi5jbGF1
-	ZGVDb2RlLm1haW4iLCJraW5kIjp7ImtpbmQiOiJyb290In0sImRpc3BsYXlOYW1lIjoi
-	Q2hhdCIsIm1vZGUiOiJyZWd1bGFyIn0seyJwYXJlbnRJRCI6ImJ1aWx0aW4uY2xhdWRl
-	Q29kZS5tYWluIiwidG9vbGJhckl0ZW1zIjpbeyJraW5kIjoibW9kZVN3aXRjaGVyIn0s
-	eyJraW5kIjoiY2hhbmdlZEZpbGVTZWxlY3RvciJ9LHsia2luZCI6ImdpdEJhc2VTZWxl
-	Y3RvciJ9LHsiZm9yd2FyZFNob3J0Y3V0Ijp7InNlcmlhbGl6ZWQiOiIweGY3MDMtMHgz
-	NDAwMDAtMHg3YyJ9LCJyZWxvYWRTaG9ydGN1dCI6eyJzZXJpYWxpemVkIjoiMHg3Mi0w
-	eDEwMDAwMC0weGYifSwia2luZCI6Im5hdmlnYXRpb24iLCJiYWNrU2hvcnRjdXQiOnsi
-	c2VyaWFsaXplZCI6IjB4ZjcwMi0weDM0MDAwMC0weDdiIn19XSwicGVyRmlsZUNvbW1h
-	bmQiOiJnaXQgZGlmZnRvb2wgLXkgLXggdmltZGlmZiBcXChnaXRCYXNlKSAtLSBcXChm
-	aWxlKSIsImNvbW1hbmQiOiJnaXQgZGlmZnRvb2wgLXkgLXggdmltZGlmZiBcXChnaXRC
-	YXNlKSIsInVybFN0cmluZyI6IiIsInVuaXF1ZUlkZW50aWZpZXIiOiJidWlsdGluLmNs
-	YXVkZUNvZGUuZGlmZiIsImtpbmQiOnsia2luZCI6InBlZXIifSwiZGlzcGxheU5hbWUi
-	OiJEaWZmIiwibW9kZSI6ImRpZmYifSx7InBhcmVudElEIjoiYnVpbHRpbi5jbGF1ZGVD
-	b2RlLm1haW4iLCJ0b29sYmFySXRlbXMiOlt7ImtpbmQiOiJtb2RlU3dpdGNoZXIifSx7
-	InNob3J0Y3V0Ijp7InNlcmlhbGl6ZWQiOiIweDcyLTB4MTAwMDAwLTB4ZiJ9LCJraW5k
-	IjoicmVsb2FkIn0seyJraW5kIjoiYXV0b1NlbmRDbGlwcGluZ3NXaGVuSWRsZSJ9XSwi
-	cGVyRmlsZUNvbW1hbmQiOiIiLCJjb21tYW5kIjoiY2xhdWRlIFxcKGNvZGVSZXZpZXdQ
-	cm9tcHQpIC0tYXBwZW5kLXN5c3RlbS1wcm9tcHQtZmlsZSAnXFwoY29kZVJldmlld1N5
-	c3RlbVByb21wdEZpbGUpJyAtLXNldHRpbmdzICdcXChpdGVybTIuYXBwQnVuZGxlUGF0
-	aClcL0NvbnRlbnRzXC9SZXNvdXJjZXNcL2NvZGUtcmV2aWV3LXNldHRpbmdzLnR4dCci
-	LCJ1cmxTdHJpbmciOiIiLCJ1bmlxdWVJZGVudGlmaWVyIjoiYnVpbHRpbi5jbGF1ZGVD
-	b2RlLnJldmlldyIsImtpbmQiOnsia2luZCI6InBlZXIifSwiZGlzcGxheU5hbWUiOiJD
-	b2RlIFJldmlldyIsIm1vZGUiOiJjb2RlUmV2aWV3In1dfV0=
+	W10=
 	</data>
 </dict>
 </plist>
