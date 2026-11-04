@@ -1,0 +1,25 @@
+id = "mrk.fileview"
+name = "File view"
+version = "0.1.0"
+min_herdr_version = "0.9.4"
+description = "Ctrl+click a file:// link to read the file in a popup"
+platforms = ["macos", "linux"]
+
+[[actions]]
+id = "open"
+title = "Open the clicked file"
+command = ["sh", "open.sh"]
+
+[[panes]]
+id = "view"
+title = "File"
+placement = "popup"
+width = "90%"
+height = "90%"
+command = ["sh", "view.sh"]
+
+[[link_handlers]]
+id = "file"
+title = "Read file:// links in a popup"
+pattern = "^file://"
+action = "open"
