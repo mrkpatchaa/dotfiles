@@ -1,5 +1,7 @@
 # fileview: Ctrl+click a file link in Herdr
 
+> **Old Herdr only.** This plugin works in the old terminal Herdr (`herdr`, config in `~/.config/herdr/`). The Herdr desktop app (`herdr-app`) doesn't run these plugins and can't catch link clicks: there, Cmd+O lists the files in the terminal instead. See [`../../herdr-app/`](../../herdr-app/README.md).
+
 A local Herdr plugin. Ctrl+click a `file://` link in a pane, and the file opens in a popup at its line (bat). `q` closes it.
 
 ## Set up on a new machine
