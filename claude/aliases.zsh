@@ -71,6 +71,8 @@ export CODEX_REVIEW_MODEL_RISKY_BOOST="gpt-6.1-sol"  # diff review with a focus.
 export CODEX_REVIEW_EFFORT_RISKY_BOOST="high"
 export CODEX_REVIEW_MODEL_SPEC_BOOST="gpt-6-astra"   # spec review, ~1.2 % per run ("Astra Light")
 export CODEX_REVIEW_EFFORT_SPEC_BOOST="low"
+export CODEX_REVIEW_MODEL_COMMIT_BOOST="gpt-6.1-sol"  # trial 10 Nov 2026: the commit hook on the boost too. Unset both to go back to Luna.
+export CODEX_REVIEW_EFFORT_COMMIT_BOOST="medium"     # Sol medium took 228-457 s on full diffs; the hook lane stops at 400 s, commit diffs are smaller
 # Weekly budget (plugin 0.5.1, after the 21–24 Sep week: Astra/Sol reviews spent a Plus week in 2.5 days, Luna reviews did not move the counter):
 # once Codex's last usage snapshot shows the 7-day window at 90 % or more, codex-review runs every review on gpt-6-luna high and says so in its
 # REVIEWER line. Tune with CODEX_WEEKLY_DOWNGRADE_AT (0 = off), CODEX_REVIEW_MODEL_CHEAP, CODEX_REVIEW_EFFORT_CHEAP. The commit hook keeps the

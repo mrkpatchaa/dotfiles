@@ -80,12 +80,15 @@ if [ "$MODE" = spec ]; then CM="${CODEX_REVIEW_MODEL_SPEC:-$CM}"; CE="${CODEX_RE
 # 13–20 Oct 2026: three windows ended early, at 82 %, 91 % and 35 %. The points left at a reset are lost, so until CODEX_BOOST_UNTIL the full
 # diff and spec reviews go back to the 0.15 tiers. Rechecks and the commit hook stay cheap. Past 90 % the weekly downgrade still takes over.
 BOOSTED=""
-if [ -n "${CODEX_BOOST_UNTIL:-}" ] && [ "${REVIEW_CALLER:-manual}" != hook ] && [[ "$(date -u +%Y-%m-%d)" < "$CODEX_BOOST_UNTIL" ]]; then
+# The commit hook (REVIEW_CALLER=hook) has its own opt-in tier, CODEX_REVIEW_MODEL_COMMIT_BOOST / _EFFORT_COMMIT_BOOST (trial from
+# 10 Nov 2026). Unset → the hook stays on the _COMMIT tier. It keeps the hook's 400 s lane timeout, so a slow boost review falls back.
+if [ -n "${CODEX_BOOST_UNTIL:-}" ] && [[ "$(date -u +%Y-%m-%d)" < "$CODEX_BOOST_UNTIL" ]]; then
   b_cm=""; b_ce=""
   case "$MODE" in
-    diff) if [ -n "${FOCUS:-}" ]; then b_cm="${CODEX_REVIEW_MODEL_RISKY_BOOST:-}"; b_ce="${CODEX_REVIEW_EFFORT_RISKY_BOOST:-}"
+    diff) if [ "${REVIEW_CALLER:-manual}" = hook ]; then b_cm="${CODEX_REVIEW_MODEL_COMMIT_BOOST:-}"; b_ce="${CODEX_REVIEW_EFFORT_COMMIT_BOOST:-}"
+          elif [ -n "${FOCUS:-}" ]; then b_cm="${CODEX_REVIEW_MODEL_RISKY_BOOST:-}"; b_ce="${CODEX_REVIEW_EFFORT_RISKY_BOOST:-}"
           else b_cm="${CODEX_REVIEW_MODEL_BOOST:-}"; b_ce="${CODEX_REVIEW_EFFORT_BOOST:-}"; fi ;;
-    spec) b_cm="${CODEX_REVIEW_MODEL_SPEC_BOOST:-}"; b_ce="${CODEX_REVIEW_EFFORT_SPEC_BOOST:-}" ;;
+    spec) [ "${REVIEW_CALLER:-manual}" != hook ] && { b_cm="${CODEX_REVIEW_MODEL_SPEC_BOOST:-}"; b_ce="${CODEX_REVIEW_EFFORT_SPEC_BOOST:-}"; } ;;
   esac
   if [ -n "$b_cm$b_ce" ]; then CM="${b_cm:-$CM}"; CE="${b_ce:-$CE}"; BOOSTED="boost until $CODEX_BOOST_UNTIL"; fi
 fi
