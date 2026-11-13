@@ -437,7 +437,7 @@
 			<key>Terminal Type</key>
 			<string>xterm-256color</string>
 			<key>Transparency</key>
-			<real>0.068503989361702017</real>
+			<real>0.3016550990222765</real>
 			<key>Triggers</key>
 			<array/>
 			<key>Unlimited Scrollback</key>
