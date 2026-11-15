@@ -58,6 +58,25 @@ def branch_tip(repo, branch, base):
     return None
 
 
+def default_base(repo):
+    """The branch a repo merges into: origin/HEAD, else the first of main, master, develop that exists."""
+    ref = git(repo, "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD")
+    if ref and "/" in ref:
+        return ref.split("/", 1)[1]
+    for b in ("main", "master", "develop"):
+        if git(repo, "rev-parse", "--verify", "-q", "--end-of-options", b):
+            return b
+    return "main"
+
+
+def resolve_base(repo, base):
+    """The base if it resolves here, else the repo's default branch. Receipts before 0.22.8 wrote "main" for every
+    handoff whose base the parser missed, and assigame-next has no main (its 11 Nov 2026 receipts read "pending")."""
+    if base and git(repo, "rev-parse", "--verify", "-q", "--end-of-options", base):
+        return base
+    return default_base(repo)
+
+
 def handoff_specs(path):
     """[(spec name, branch, base)] in file order, one per `Status:` line.
     A finished handoff moves from docs/tasks/ to docs/archive/, so a later backfill looks there too."""
@@ -76,9 +95,10 @@ def handoff_specs(path):
         if m:
             name, branch, base = m.group(1), None, None
             continue
-        m = re.match(r"^-\s*Branch:\s*`([^`]+)`(?:,\s*base\s*`([^`]+)`)?", line)
-        if m:
-            branch, base = m.group(1), m.group(2)
+        m = re.match(r"^-\s*Branch:\s*`([^`]+)`(.*)$", line)
+        if m:  # the base comes as ", base `x`", " · base `x`" or ". Base: x" (handoffs of Oct–Nov 2026)
+            b = re.search(r"\bbase:?\s*`?([A-Za-z0-9._/-]+)", m.group(2), re.I)
+            branch, base = m.group(1), b.group(1) if b else None
             continue
         if re.match(r"^Status:\s*[a-z]+", line):
             specs.append((name, branch, base))
@@ -106,7 +126,7 @@ def receipt(out_json, repo, handoff, n, outcome, sec, before, after, when):
     specs = handoff_specs(handoff)
     i = changed_index(before, after)
     name, branch, base = specs[i] if i is not None and i < len(specs) else (None, None, None)
-    base = base or "main"
+    base = resolve_base(repo, base)
     tip = branch_tip(repo, branch, base) if branch else None
     commits = branch_commits(repo, tip, base) if tip else None
     after_list = after.split()
@@ -157,7 +177,8 @@ def summary(day):
 
 
 def verdict(r, today):
-    repo, tip, base = r.get("repo_path"), r.get("tip"), r.get("base") or "main"
+    repo, tip = r.get("repo_path"), r.get("tip")
+    base = resolve_base(repo, r.get("base")) if repo else (r.get("base") or "main")
     if not tip:
         branch = r.get("branch")
         tip = git(repo, "rev-parse", "--verify", "-q", branch) if (repo and branch) else None
